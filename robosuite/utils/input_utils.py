@@ -119,7 +119,7 @@ def choose_robots(exclude_bimanual=False, use_humanoids=False, exclude_single_ar
     if exclude_single_arm:
         robots = set()
     else:
-        robots = {"Sawyer", "Panda", "Jaco", "Kinova3", "IIWA", "UR5e", "SpotWithArmFloating", "XArm7"}
+        robots = {"SOARM101", "Sawyer", "Panda", "Jaco", "Kinova3", "IIWA", "UR5e", "SpotWithArmFloating", "XArm7"}
 
     # Add Baxter if bimanual robots are not excluded
     if not exclude_bimanual:
@@ -131,6 +131,9 @@ def choose_robots(exclude_bimanual=False, use_humanoids=False, exclude_single_ar
 
     # Make sure set is deterministically sorted
     robots = sorted(robots)
+    if "SOARM101" in robots:
+        robots.remove("SOARM101")
+        robots.insert(0, "SOARM101")
 
     # Select robot
     print("Here is a list of available robots:\n")
