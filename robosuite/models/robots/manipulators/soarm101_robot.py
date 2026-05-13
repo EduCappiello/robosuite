@@ -20,7 +20,7 @@ class SOARM101(ManipulatorModel):
 
     @property
     def default_base(self):
-        return "RethinkMount"
+        return "RethinkMinimalMount"
 
     @property
     def default_gripper(self):
