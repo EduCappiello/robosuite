@@ -96,6 +96,9 @@ import numpy as np
 import robosuite as suite
 from robosuite import load_composite_controller_config
 from robosuite.controllers.composite.composite_controller import WholeBody
+from robosuite.controllers.composite.composite_controller_factory import refactor_composite_controller_config
+from robosuite.controllers.parts.controller_factory import load_part_controller_config
+from robosuite.models.robots import create_robot
 from robosuite.wrappers import VisualizationWrapper
 
 if __name__ == "__main__":
@@ -164,10 +167,20 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Get controller config
-    controller_config = load_composite_controller_config(
-        controller=args.controller,
-        robot=args.robots[0],
-    )
+    try:
+        controller_config = load_composite_controller_config(
+            controller=args.controller,
+            robot=args.robots[0],
+        )
+    except AssertionError:
+        if args.controller == "osc" and args.robots[0] == "SOARM101":
+            controller_config = load_composite_controller_config(controller=None, robot=args.robots[0])
+        elif args.controller in suite.ALL_PART_CONTROLLERS:
+            robot_model = create_robot(args.robots[0])
+            part_controller = load_part_controller_config(default_controller=args.controller)
+            controller_config = refactor_composite_controller_config(part_controller, args.robots[0], robot_model.arms)
+        else:
+            raise
 
     # Create argument configuration
     config = {

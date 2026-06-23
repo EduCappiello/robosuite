@@ -2,13 +2,14 @@ import numpy as np
 
 import robosuite as suite
 from robosuite.robots import FixedBaseRobot
+from robosuite.environments.manipulation.soarm101_lift import SOARM101Lift
 
 
 def test_soarm101_robot_loads():
     robot = FixedBaseRobot(robot_type="SOARM101", gripper_type="SO101Gripper")
     robot.load_model()
 
-    assert robot.robot_model.dof == 6
+    assert robot.robot_model.dof == 5  # arm only; gripper DOF is in SO101Gripper
     assert robot.robot_model.naming_prefix == "robot0_"
     assert robot.robot_model.eef_name == {"right": "robot0_gripper"}
     assert robot.gripper["right"].dof == 1
@@ -67,5 +68,32 @@ def test_soarm101_shoulder_pan_moves_with_collisions_enabled():
 
         # Shoulder pan should move significantly when directly actuated.
         assert abs(q1 - q0) > 0.2
+    finally:
+        env.close()
+
+
+def test_soarm101_custom_lift_uses_null_mount_and_custom_mass():
+    env = SOARM101Lift(
+        has_renderer=False,
+        has_offscreen_renderer=False,
+        ignore_done=True,
+        use_camera_obs=False,
+        control_freq=20,
+        cube_mass=0.12,
+        cube_offset=(0.05, -0.02, 0.0),
+    )
+
+    try:
+        assert env.robots[0].robot_model.base.__class__.__name__ == "NullMount"
+        expected_density = 0.12 / (8.0 * 0.018 * 0.018 * 0.018)
+        assert np.isclose(env.cube.density, expected_density)
+        assert np.allclose(env.placement_initializer.reference_pos, env.table_offset + env.cube_offset)
+
+        env.reset()
+        action = np.zeros(env.action_spec[0].shape)
+        obs, reward, done, info = env.step(action)
+
+        assert isinstance(obs, dict)
+        assert action.shape == env.action_spec[0].shape
     finally:
         env.close()

@@ -1,20 +1,62 @@
 <mujoco model="so101_gripper">
+    <asset>
+        <!-- mesh path resolved relative to this file's directory by robosuite -->
+        <mesh name="moving_jaw_so101_v1" file="../robots/SOARM101/SO101/assets/moving_jaw_so101_v1.stl"/>
+        <material name="moving_jaw_so101_v1_material" rgba="1 0.82 0.12 1"/>
+    </asset>
     <worldbody>
-        <body name="null_gripper" pos="0 0 0">
+        <body name="gripper_base" pos="0 0 0">
             <site name="ft_frame" pos="0 0 0" size="0.01 0.01 0.01" rgba="1 0 0 1" type="sphere" group="1"/>
-            <inertial pos="0 0 0" mass="3e-1" diaginertia="1e-2 1e-2 1e-2" />
+            <!-- Massless mounting frame. gripper_base is a robosuite-only attachment body with no
+                 counterpart in the upstream SO-ARM100 model (TheRobotStudio/SO-ARM100,
+                 Simulation/SO101/so101_new_calib.xml) or the URDF: upstream goes gripper(0.087 kg)
+                 -> moving_jaw(0.012 kg) directly. The real gripper mass (6th servo + jaw) is already
+                 carried by those two bodies. The previous mass="3e-1" diaginertia="1e-2" was a
+                 placeholder that added a phantom +0.3 kg (+47.5% of the 0.632 kg arm) at the wrist,
+                 inflating gravity/inertial ground truth. 1e-9 mirrors the URDF gripper_frame_link
+                 dummy convention. See robosuite_private/JOURNAL.md and the upstream drift-guard test. -->
+            <inertial pos="0 0 0" mass="1e-9" diaginertia="1e-9 1e-9 1e-9"/>
+            <!-- Moving jaw — same offset it had relative to the wrist_roll body in the arm XML -->
+            <body name="moving_jaw" pos="0.0202 0.0188 -0.0234" quat="0.707107 0.707107 -1.85362e-08 1.85362e-08">
+                <joint axis="0 0 1" name="gripper" type="hinge"
+                       range="-0.17453297762778586 1.7453291995659765"
+                       damping="0.60" frictionloss="0.052" armature="0.028"/>
+                <inertial pos="-0.00157495 -0.0300244 0.0192755" mass="0.012"
+                          fullinertia="6.61427e-06 1.89032e-06 5.28738e-06 -3.19807e-07 -5.90717e-09 -1.09945e-07"/>
+                <geom name="moving_jaw_vis" type="mesh" contype="0" conaffinity="0" group="1"
+                      pos="-5.55112e-17 -5.55112e-17 0.0189"
+                      quat="1 -0 3.00524e-16 -2.00834e-17"
+                      mesh="moving_jaw_so101_v1" material="moving_jaw_so101_v1_material"/>
+                <geom name="moving_jaw_col" type="mesh" group="0"
+                      pos="-5.55112e-17 -5.55112e-17 0.0189"
+                      quat="1 -0 3.00524e-16 -2.00834e-17"
+                      mesh="moving_jaw_so101_v1" material="moving_jaw_so101_v1_material"
+                      friction="2 0.05 0.001"/>
+            </body>
+            <!-- EEF sites used by robosuite's gripper interface -->
             <body name="eef" pos="0 0 0" quat="0.707105 0 0 -0.707105">
-                <site name="so101_grip_site" pos="0 0 0" size="0.01 0.01 0.01" rgba="1 0 0 0.5" type="sphere" group="1"/>
-                <site name="so101_ee" pos="0 0 0" size="0.01 0.01 0.01" rgba="1 0 0 0.5" type="sphere" group="1"/>
-                <site name="so101_ee_x" pos="0.1 0 0" size="0.005 .1" quat="0.707105 0 0.707108 0" rgba="1 0 0 0" type="cylinder" group="1"/>
-                <site name="so101_ee_y" pos="0 0.1 0" size="0.005 .1" quat="0.707105 0.707108 0 0" rgba="0 1 0 0" type="cylinder" group="1"/>
-                <site name="so101_ee_z" pos="0 0 0.1" size="0.005 .1" quat="1 0 0 0" rgba="0 0 1 0" type="cylinder" group="1"/>
-                <site name="so101_grip_site_cylinder" pos="0 0 0" size="0.005 10" rgba="0 1 0 0.3" type="cylinder" group="1"/>
+                <site name="so101_grip_site"          pos="0 0 0"   size="0.01 0.01 0.01" rgba="1 0 0 0.5"  type="sphere"   group="1"/>
+                <site name="so101_ee"                 pos="0 0 0"   size="0.01 0.01 0.01" rgba="1 0 0 0.5"  type="sphere"   group="1"/>
+                <site name="so101_ee_x"               pos="0.1 0 0" size="0.005 .1"       quat="0.707105 0 0.707108 0"  rgba="1 0 0 0" type="cylinder" group="1"/>
+                <site name="so101_ee_y"               pos="0 0.1 0" size="0.005 .1"       quat="0.707105 0.707108 0 0"  rgba="0 1 0 0" type="cylinder" group="1"/>
+                <site name="so101_ee_z"               pos="0 0 0.1" size="0.005 .1"       quat="1 0 0 0"                rgba="0 0 1 0" type="cylinder" group="1"/>
+                <site name="so101_grip_site_cylinder" pos="0 0 0"   size="0.005 10"       rgba="0 1 0 0.3" type="cylinder" group="1"/>
             </body>
         </body>
     </worldbody>
+    <actuator>
+        <!-- position actuator: ctrl = target joint angle → GRIP controller maps [-1,1] proportionally
+             to this ctrlrange, giving continuous jaw control instead of bang-bang torque. -->
+        <!-- kp/kv/forcerange match the upstream sts3215 actuator class
+             (TheRobotStudio/SO-ARM100 so101_new_calib.xml: kp=998.22 kv=2.731, and the
+             per-actuator forcerange override -3.35 3.35 — the real STS3215 stall torque).
+             kv was previously absent (undamped) and forcerange used the class default ±2.94. -->
+        <position name="gripper" joint="gripper" kp="998.22" kv="2.731"
+                  ctrllimited="true"  ctrlrange="-0.17453297762778586 1.7453291995659765"
+                  forcelimited="true" forcerange="-3.35 3.35"/>
+    </actuator>
     <sensor>
-        <force name="force_ee" site="ft_frame"/>
+        <force  name="force_ee"  site="ft_frame"/>
         <torque name="torque_ee" site="ft_frame"/>
     </sensor>
 </mujoco>

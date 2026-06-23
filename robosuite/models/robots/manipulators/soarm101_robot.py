@@ -16,7 +16,7 @@ class SOARM101(ManipulatorModel):
     arms = ["right"]
 
     def __init__(self, idn=0):
-        super().__init__(xml_path_completion("robots/SOARM101/SO101/so101_new_calib.xml"), idn=idn)
+        super().__init__(xml_path_completion("robots/SOARM101/SO101/soarm_with_sensor.xml"), idn=idn)
 
     @property
     def default_base(self):
@@ -28,11 +28,11 @@ class SOARM101(ManipulatorModel):
 
     @property
     def default_controller_config(self):
-        return {"right": "osc_pose"}
+        return {"right": "osc_position"}
 
     @property
     def init_qpos(self):
-        return np.array([0.0, 0.65, 0.0, 1.89, 0.0, 0.6])
+        return np.array([0.0, 0.65, 0.0, 1.5, 0.0])
 
     @property
     def base_xpos_offset(self):

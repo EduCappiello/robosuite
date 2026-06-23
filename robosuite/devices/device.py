@@ -132,8 +132,11 @@ class Device(metaclass=abc.ABCMeta):
         controller = robot.part_controllers[active_arm]
         gripper = robot.gripper[active_arm]
         gripper_dof = robot.gripper[active_arm].dof
+        arm_control_dim = 3 if controller.name == "OSC_POSITION" else 6
 
-        assert controller.name in ["OSC_POSE", "JOINT_POSITION"], "only supporting OSC_POSE and JOINT_POSITION for now"
+        assert controller.name in ["OSC_POSE", "OSC_POSITION", "JOINT_POSITION"], (
+            "only supporting OSC_POSE, OSC_POSITION and JOINT_POSITION for now"
+        )
 
         # process raw device inputs
         drotation = raw_drotation[[1, 0, 2]]
@@ -151,7 +154,7 @@ class Device(metaclass=abc.ABCMeta):
             arm_action = self.get_arm_action(
                 robot,
                 arm,
-                norm_delta=np.zeros(6),
+                norm_delta=np.zeros(arm_control_dim),
                 goal_update_mode=goal_update_mode,
             )
             ac_dict[f"{arm}_abs"] = arm_action["abs"]
@@ -165,14 +168,14 @@ class Device(metaclass=abc.ABCMeta):
                 base_ac = np.array([dpos[0], dpos[1], drotation[2]])
                 device_torso_input = dpos[2]  # Use vertical movement for torso in base mode
             else:
-                arm_norm_delta = np.concatenate([dpos, drotation])
+                arm_norm_delta = dpos if controller.name == "OSC_POSITION" else np.concatenate([dpos, drotation])
                 base_ac = np.zeros(3)
                 device_torso_input = 0.0  # No torso input when not in base mode
 
             ac_dict["base"] = base_ac
             ac_dict["base_mode"] = np.array([1 if base_mode is True else -1])
         else:
-            arm_norm_delta = np.concatenate([dpos, drotation])
+            arm_norm_delta = dpos if controller.name == "OSC_POSITION" else np.concatenate([dpos, drotation])
             device_torso_input = 0.0  # No torso input for non-mobile robots by default
 
         if hasattr(robot, "torso") and robot.torso is not None:

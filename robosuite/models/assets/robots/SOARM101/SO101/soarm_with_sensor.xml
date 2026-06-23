@@ -1,8 +1,8 @@
 <?xml version="1.0" ?>
-<!-- Generated using onshape-to-robot -->
-<!-- Onshape https://cad.onshape.com/documents/7715cc284bb430fe6dab4ffd/w/4fd0791b683777b02f8d975a/e/826c553ede3b7592eb9ca800 -->
-<mujoco model="so101_new_calib">
-  <compiler angle="radian" meshdir="assets" autolimits="true"/>
+<!-- Instrumented copy with wrist FT site and sensors -->
+<!-- Based on so101_new_calib.xml -->
+<mujoco model="so101_new_calib_instrumented">
+  <compiler angle="radian" meshdir="." autolimits="true"/>
   <default>
     <default class="so101_new_calib">
       <joint damping="1" frictionloss="0.1" armature="0.005"/>
@@ -17,14 +17,9 @@
     <default class="sts3215">
       <geom contype="0" conaffinity="0"/>
       <joint damping="0.60" frictionloss="0.052" armature="0.028"/>
-      <!-- These gains are not a 1-to-1 mapping of the servo gains used in
-           Lerobot. These position gains and forces were calculated according to
-           https://github.com/Gregory119/RBE501-RL-arm-project/blob/main/gymnasium_env/README.md,
-           assuming that the servo proportional gain is set to 16. -->
       <position kp="998.22" kv="2.731" forcerange="-2.94 2.94"/>
     </default>
     <default class="backlash">
-      <!-- +/- 0.5° of backlash -->
       <joint damping="0.01" frictionloss="0" armature="0.01" limited="true" range="-0.008726646259971648 0.008726646259971648"/>
     </default>
   </default>
@@ -102,9 +97,14 @@
                 <!-- Part sts3215_03a_v1_5 -->
                 <geom type="mesh" class="visual" pos="0.0077 0.0001 -0.0234" quat="0.707107 -0.707107 1.66015e-15 6.45094e-15" mesh="sts3215_03a_v1" material="sts3215_03a_v1_material"/>
                 <geom type="mesh" class="collision" pos="0.0077 0.0001 -0.0234" quat="0.707107 -0.707107 1.66015e-15 6.45094e-15" mesh="sts3215_03a_v1" material="sts3215_03a_v1_material"/>
-                <!-- Part wrist_roll_follower_so101_v1 -->
+                <!-- Part wrist_roll_follower_so101_v1 — visual only; mesh tip reaches grip zone
+                     and caused premature contact. Collision replaced with a small tip pad. -->
                 <geom type="mesh" class="visual" pos="8.32667e-17 -0.000218214 0.000949706" quat="0 1 0 0" mesh="wrist_roll_follower_so101_v1" material="wrist_roll_follower_so101_v1_material"/>
-                <geom type="mesh" class="collision" pos="8.32667e-17 -0.000218214 0.000949706" quat="0 1 0 0" mesh="wrist_roll_follower_so101_v1" material="wrist_roll_follower_so101_v1_material"/>
+                <geom name="static_finger_tip" type="box"
+                      pos="-0.008 -0.004 -0.092"
+                      size="0.012 0.002 0.012"
+                      friction="2 0.05 0.001"
+                      rgba="1 0.82 0.12 1"/>
                 <!-- Frame gripperframe -->
                 <site group="3" name="gripperframe" pos="-0.0079 -0.000218121 -0.0981274" quat="0.707107 -0 0.707107 -2.37788e-17"/>
                 <site group="3" name="grip_site" pos="-0.0079 -0.000218121 -0.0981274" quat="0.707107 -0 0.707107 -2.37788e-17"/>
@@ -113,7 +113,8 @@
                 <site group="3" name="ee_x" pos="0.0421 -0.000218121 -0.0981274" quat="0.707107 -0 0.707107 -2.37788e-17" type="cylinder" size="0.005 0.05" rgba="1 0 0 0"/>
                 <site group="3" name="ee_y" pos="-0.0079 0.049781879 -0.0981274" quat="0.707107 -0 0.707107 -2.37788e-17" type="cylinder" size="0.005 0.05" rgba="0 1 0 0"/>
                 <site group="3" name="ee_z" pos="-0.0079 -0.000218121 -0.0481274" quat="0.707107 -0 0.707107 -2.37788e-17" type="cylinder" size="0.005 0.05" rgba="0 0 1 0"/>
-
+                <!-- Wrist FT site — jaw is now in the SO101Gripper model, not the arm XML -->
+                <site group="3" name="wrist_ft_site" pos="0 0 0" quat="1 0 0 0"/>
               </body>
             </body>
           </body>
@@ -126,7 +127,6 @@
     <mesh name="sts3215_03a_v1" file="assets/sts3215_03a_v1.stl"/>
     <mesh name="motor_holder_so101_base_v1" file="assets/motor_holder_so101_base_v1.stl"/>
     <mesh name="wrist_roll_follower_so101_v1" file="assets/wrist_roll_follower_so101_v1.stl"/>
-
     <mesh name="base_motor_holder_so101_v1" file="assets/base_motor_holder_so101_v1.stl"/>
     <mesh name="upper_arm_so101_v1" file="assets/upper_arm_so101_v1.stl"/>
     <mesh name="wrist_roll_pitch_so101_v2" file="assets/wrist_roll_pitch_so101_v2.stl"/>
@@ -147,15 +147,18 @@
     <material name="sts3215_03a_no_horn_v1_material" rgba="0.1 0.1 0.1 1.0"/>
     <material name="wrist_roll_pitch_so101_v2_material" rgba="1 0.82 0.12 1"/>
     <material name="wrist_roll_follower_so101_v1_material" rgba="1 0.82 0.12 1"/>
-
   </asset>
+  <!-- NEW: sensors attached to wrist_ft_site -->
+  <sensor>
+    <force site="wrist_ft_site" name="wrist_ft_force"/>
+    <torque site="wrist_ft_site" name="wrist_ft_torque"/>
+  </sensor>
   <actuator>
     <motor class="sts3215" name="shoulder_pan" joint="shoulder_pan" ctrllimited="true" ctrlrange="-3.35 3.35"/>
     <motor class="sts3215" name="shoulder_lift" joint="shoulder_lift" ctrllimited="true" ctrlrange="-3.35 3.35"/>
     <motor class="sts3215" name="elbow_flex" joint="elbow_flex" ctrllimited="true" ctrlrange="-3.35 3.35"/>
     <motor class="sts3215" name="wrist_flex" joint="wrist_flex" ctrllimited="true" ctrlrange="-3.35 3.35"/>
     <motor class="sts3215" name="wrist_roll" joint="wrist_roll" ctrllimited="true" ctrlrange="-3.35 3.35"/>
-
   </actuator>
   <equality/>
 </mujoco>
