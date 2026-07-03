@@ -6,7 +6,6 @@ from robosuite.environments.manipulation.lift import Lift
 from robosuite.models.arenas import TableArena
 from robosuite.models.objects import BoxObject
 from robosuite.models.tasks import ManipulationTask
-from robosuite.utils.mjcf_utils import CustomMaterial
 from robosuite.utils.observables import Observable, sensor
 from robosuite.utils.placement_samplers import UniformRandomSampler
 from robosuite.utils.transform_utils import convert_quat
@@ -28,7 +27,7 @@ class SOARM101Lift(Lift):
         controller_configs=None,
         gripper_types="default",
         base_types="NullMount",
-        initialization_noise="default",
+        initialization_noise=None,   # deterministic reset to init_qpos (no start-pose variance)
         table_full_size=(0.8, 0.8, 0.05),
         table_friction=(1.0, 5e-3, 1e-4),
         use_camera_obs=True,
@@ -37,7 +36,9 @@ class SOARM101Lift(Lift):
         reward_shaping=False,
         placement_initializer=None,
         cube_mass=0.03,
-        cube_offset=(-0.2, -0.2, 0.0),
+        cube_yaw_range_deg=(0.0, 45.0),
+        cube_offset=(-0.17, -0.15, 0.0),
+        target_offset=(-0.27, 0.22, 0.0),   # blue X drop-target, aligned to real top cam
         robot_table_offset=(0.182, 0.0, 0.0),
         has_renderer=False,
         has_offscreen_renderer=True,
@@ -60,7 +61,12 @@ class SOARM101Lift(Lift):
         seed=None,
     ):
         self.cube_mass = cube_mass
+        # Planar (yaw) orientation range for the box, re-sampled every reset by the placement
+        # sampler. Per-episode colour + mass are applied on the LIVE model by the robot's
+        # dress_cube() (see RobosuiteSimFollower) — no env rebuild needed for those.
+        self.cube_yaw_range_deg = tuple(cube_yaw_range_deg)
         self.cube_offset = np.array(cube_offset)
+        self.target_offset = np.array(target_offset)
         self.robot_table_offset = np.array(robot_table_offset)
         super().__init__(
             robots=robots,
@@ -112,21 +118,36 @@ class SOARM101Lift(Lift):
         )
         mujoco_arena.set_origin([0, 0, 0])
 
-        tex_attrib = {
-            "type": "cube",
-        }
-        mat_attrib = {
-            "texrepeat": "1 1",
-            "specular": "0.4",
-            "shininess": "0.1",
-        }
-        redwood = CustomMaterial(
-            texture="WoodRed",
-            tex_name="redwood",
-            mat_name="redwood_mat",
-            tex_attrib=tex_attrib,
-            mat_attrib=mat_attrib,
-        )
+        # Quick test: beige background (floor plane + skybox void) instead of wood/gray.
+        _beige = "0.82 0.71 0.55 1"
+        _floor = getattr(mujoco_arena, "floor", None)
+        if _floor is not None:
+            _floor.set("rgba", _beige)
+            _floor.attrib.pop("material", None)
+        # Walls (the gray behind the arm in the corner view) and skybox -> beige.
+        for _mat in mujoco_arena.asset.findall(".//material[@name='walls_mat']"):
+            _mat.set("rgba", _beige)
+            _mat.attrib.pop("texture", None)
+        for _tex in mujoco_arena.asset.findall(".//texture[@type='skybox']"):
+            _tex.set("builtin", "flat")
+            _tex.set("rgb1", "0.82 0.71 0.55")
+            _tex.set("rgb2", "0.82 0.71 0.55")
+            _tex.attrib.pop("file", None)
+
+        # Blue "X" drop-target decal on the table top (visual only), matching the real scene
+        # so the policy isn't shown an out-of-distribution empty target zone. Two crossed thin
+        # boxes flat on the surface; position = table_offset + target_offset (world XY).
+        import xml.etree.ElementTree as _ET
+        _tx = float(self.table_offset[0] + self.target_offset[0])
+        _ty = float(self.table_offset[1] + self.target_offset[1])
+        _tz = float(self.table_offset[2] + 0.0015)
+        for _nm, _ang in (("target_x_a", "0 0 1 0.7853982"), ("target_x_b", "0 0 1 -0.7853982")):
+            _ET.SubElement(mujoco_arena.worldbody, "geom", {
+                "name": _nm, "type": "box", "size": "0.032 0.0015 0.0001",
+                "pos": f"{_tx} {_ty} {_tz}", "axisangle": _ang,
+                "rgba": "0.05 0.2 0.85 1", "contype": "0", "conaffinity": "0", "group": "1",
+            })
+
         cube_size = (0.018, 0.018, 0.018)
         cube_volume = 8.0 * cube_size[0] * cube_size[1] * cube_size[2]
         density = float(self.cube_mass / cube_volume)
@@ -135,8 +156,7 @@ class SOARM101Lift(Lift):
             size_min=cube_size,
             size_max=cube_size,
             density=density,
-            rgba=[1, 0, 0, 1],
-            material=redwood,
+            rgba=[0.2, 0.2, 0.2, 1],   # default; per-episode colour set live by robot.dress_cube()
             rng=self.rng,
         )
 
@@ -147,9 +167,12 @@ class SOARM101Lift(Lift):
             self.placement_initializer = UniformRandomSampler(
                 name="ObjectSampler",
                 mujoco_objects=self.cube,
-                x_range=[-0.03, 0.03],
-                y_range=[-0.03, 0.03],
-                rotation=None,
+                x_range=[-0.00, 0.00],
+                y_range=[-0.00, 0.00],
+                # Randomize only the yaw (rotation about the table normal) in the requested
+                # range; re-sampled every reset by _reset_internal -> per-episode orientation.
+                rotation=(np.deg2rad(self.cube_yaw_range_deg[0]), np.deg2rad(self.cube_yaw_range_deg[1])),
+                rotation_axis="z",
                 ensure_object_boundary_in_range=False,
                 ensure_valid_placement=True,
                 reference_pos=self.table_offset + self.cube_offset,
@@ -180,7 +203,7 @@ class SOARM101Lift(Lift):
         #         the image; change sign of the last component to mirror L/R.
         mujoco_arena.set_camera(
             camera_name="top",
-            pos=np.array([-0.25, 0.0, 1.70]),   # raised to 1.70 m → robot fits comfortably
+            pos=np.array([-0.15, 0.02, 1.52]),   # aligned to real top cam (cyan/red overlay)
             quat=np.array([0.7071, 0.0, 0.0, -0.7071]),
         )
 
@@ -192,8 +215,10 @@ class SOARM101Lift(Lift):
         #         recomputed via cross-product rotation (see git log for formula).
         mujoco_arena.set_camera(
             camera_name="corner",
-            pos=np.array([0.05, -0.45, 0.87]),
-            quat=np.array([0.6322, 0.6924, 0.2568, 0.2345]),
+            # Aligned to real corner cam (cyan/red overlay). Pos lowered to 0.84; quat pitched
+            # up ~6 deg (camera points a little upward -> lower horizon, matching the real view).
+            pos=np.array([0.07, -0.40, 0.84]),
+            quat=np.array([0.5951, 0.7245, 0.2687, 0.2207]),
         )
 
         self.model = ManipulationTask(

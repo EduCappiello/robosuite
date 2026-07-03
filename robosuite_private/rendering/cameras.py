@@ -39,7 +39,7 @@ def get_camera_frames(
         camera_names = list(env.camera_names) if env.camera_names else []
 
     # Match robosuite's image convention (robot_env uses the same pattern).
-    from robosuite.utils import macros
+    import robosuite.macros as macros
     from robosuite.utils.mjcf_utils import IMAGE_CONVENTION_MAPPING
     convention = IMAGE_CONVENTION_MAPPING[macros.IMAGE_CONVENTION]
 

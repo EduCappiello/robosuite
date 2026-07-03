@@ -32,7 +32,13 @@ class SOARM101(ManipulatorModel):
 
     @property
     def init_qpos(self):
-        return np.array([0.0, 0.65, 0.0, 1.5, 0.0])
+        # Episode-1 frame-0 pose from hpi_boxes_standard (exact):
+        #   pan 5.01, shoulder_lift -104.13, elbow_flex 96.48, wrist_flex 77.80, wrist_roll 96.31 (deg).
+        # Only elbow_flex is changed: unfolded ~8 deg (96.5 -> 88.5) so the folded gripper clears
+        # the table (the exact elbow dips the gripper ~18 mm into the table -- a sim height offset;
+        # the real pose is collision-free). All other joints, incl. wrist_roll (1.6809), are exact.
+        # [pan, shoulder_lift, elbow_flex, wrist_flex, wrist_roll] (rad). Reset is deterministic.
+        return np.array([0.0875, -1.8174, 1.5443, 1.3579, 1.6809])
 
     @property
     def base_xpos_offset(self):
