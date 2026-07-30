@@ -764,3 +764,66 @@ PHYSICAL; it corrupts the MEASURED τ_motor at folded poses (not the model).
   estimation/calibration when the user wires `filter_free` into their calibration loop.
 
 <!-- Append new dated entries below this line. -->
+
+### 2026-07-30 — Foundation repair (red GT tests root-caused) + XLeRobot 17-DoF model (M1)
+
+**Branch `xlerobot-17dof`** (worktree `~/Documents/dev/robosuite-xlerobot`, copy of `fork/patricia-xlerobot`)
+— start of the XLeRobot sim port for the coffee project. Env note: `lerobot` conda env now has **mujoco 3.9.0**.
+
+**test_external_gt was red (2 tests) — root causes found, both PHYSICAL constraint forces the
+residual was honestly reporting, not pipeline bugs:**
+1. **Init pose outside joint range** (since 7421b91f, 2026-07-03): scene-match `init_qpos`
+   `shoulder_lift = -1.8174` vs model range ±1.7453 → `LIMIT_JOINT` row fires at reset.
+   Fix: clamped to −1.7353 (0.01 margin) in `soarm101_robot.py`; deviation documented.
+2. **Phantom self-contact** (since 9859a1cc, 2026-07-30): at the folded pose the fixed-finger
+   collision pads penetrate the *shoulder* mesh-collision convex hulls (dist to −3.2 mm; the hulls
+   of the non-convex motor-holder brackets bulge past the real part; the real arm holds this pose
+   freely). Contact wrench on a distal body → constraint torque spread across joints 1–4, residual
+   to −7.4 N·m (> motor clamp — impossible as a real force, which was the tell).
+   Fix: `<contact><exclude gripper↔shoulder/>` in `soarm_with_sensor.xml` (same philosophy as the
+   historical base-collision removal). 750a7484's `mj_fullM` shim was **exonerated**: dense M ==
+   `mj_mulM` to 1e-16 under mujoco 3.9.0.
+   **Implication:** any July force recording at/near the scene-match pose carries these phantom
+   torques at episode start — prime suspect for the reported SOARM101 GT-vs-estimate mismatch.
+   Re-grade after this fix before hunting estimator bugs.
+3. Hygiene: GT identity fixture now `initialization_noise=None` (σ=0.02 noise could re-enter the
+   limit); regression guard `test_soarm101_init_qpos_within_joint_ranges`.
+4. Restored kwargs orphaned by the cup rework: `cube_mass` (payload knob for estimator sweeps —
+   now applied to the compiled cup body in `_setup_references`, default `None` = keep XML mass, so
+   task3/5's 0.215 kg water cup is untouched) and `cube_offset` (wired into the default sampler;
+   task envs unaffected — they place the cup via `cup_start_offset`).
+
+**M1 — XLeRobot 17-DoF robosuite model** (kinematics-first; force-oracle generalization is M2):
+- `models/assets/robots/XLeRobot/robot.xml`: two **verbatim calibrated SO-101 chains**
+  (drift-guarded inertials; right chain first — robosuite splits arm joints positionally) with
+  `right_`/`left_` prefixes, per-arm wrist FT sites+sensors, per-arm gripper↔shoulder excludes;
+  2-DoF head (upstream has joints but no actuators/geoms — added position actuators, estimate
+  masses, RealSense stand-in camera `head_cam` fovy 42.5); chassis = RÅSKOG-footprint primitive
+  (collision box only to z=0.60 so folded arms can never phantom-contact it; placeholder inertial
+  9 kg — Tier-2 TODO).
+- **Mount transforms** from upstream Vector-Wangel/XLeRobot `simulation/mujoco/xlerobot.xml`
+  @ 3d14695e, remapped Rz(−90°) to robosuite base frame: arms (0.1352, ∓0.15, 0.8215) yaw 0,
+  head pan (−0.125, 0, 0.945), tilt +(0.05, 0, 0.18). Registry `XLEROBOT_FRAME_TREE` in
+  `xlerobot_robot.py`, drift-guarded by `test_xlerobot_frame_tree_matches_mjcf`.
+  **Must be hardware-verified** (Project_definition §3.3 Validations A/C) before platform force
+  data is trusted. Upstream MJCF is a geometry donor ONLY — its arm inertials are SO-100
+  (+58% upper-arm mass vs our calib), chassis 121.6 kg placeholder, zero joint friction/armature.
+- Base = `NullMobileBase` virtual planar joints (forward/side/yaw velocity) — the robosuite
+  convention AND the real robot's base command interface (body-frame x/y/θ vel; kiwi mixing stays
+  on the host, as on hardware). Physical wheels not simulated.
+- `XLeRobotGripper` (so101_gripper.py): arm-unique namespace `robot0_{right,left}_` so the jaw
+  reads as each arm's 6th motor (`robot0_right_gripper`), matching the real per-arm motor layout.
+- Default composite `default_xlerobot.json`: arms JOINT_POSITION(kp=100)+GRIP, head JOINT_POSITION,
+  base JOINT_VELOCITY → **17-dim action = [R arm 5, R grip 1, L arm 5, L grip 1, head 2, base 3]**,
+  semantically identical to the real 17-motor interface.
+- Tests `tests/test_robots/test_xlerobot.py` (5): registration, part classification + positional
+  split, frame-tree guard, init-vs-range guard, 17-dim env smoke + FT sensors. Full suite green
+  (61 private/robot/task + composite matrix; SO101Gripper×{Baxter,Tiago,GR1} pre-existing failures
+  resolved by skipping robot-specific adapter grippers in the combo matrix, with rationale).
+
+**Next (M2→M5):** per-arm GT oracle (dynamics_gt takes per-arm joint sets; per-arm robot_spec /
+motor_signals namespaces) → EKF-vs-GT free-motion grading (the never-run E04), single desk arm
+FIRST, then per mounted arm with the estimator gravity-rotation hook (set `model.gravity.linear`
+after `urdf_loader.py:93`, before the CasADi copy; codegen cache key must gain the mount rotation)
+→ payload slope on-platform (cube_mass knob) → coffee tasks re-parented onto XLeRobot → sim E-FC
+(drive virtual base, arms free, GT contact = 0 by construction).

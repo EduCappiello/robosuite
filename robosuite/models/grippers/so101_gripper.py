@@ -52,3 +52,22 @@ class SO101Gripper(GripperModel):
             "ee_y": "so101_ee_y",
             "ee_z": "so101_ee_z",
         }
+
+
+class XLeRobotGripper(SO101Gripper):
+    """
+    Arm-unique namespace variant for the bimanual XLeRobot.
+
+    SO101Gripper collapses the gripper idn "0_right"/"0_left" to the shared
+    prefix "robot0_", which collides when two instances merge into one model.
+    Here the arm suffix is kept: "robot0_right_" / "robot0_left_", matching the
+    arm chains' joint naming (robot0_right_shoulder_pan, ..., robot0_right_gripper).
+    Single-part idn (no underscore) falls back to SO101Gripper behavior.
+    """
+
+    @property
+    def naming_prefix(self):
+        parts = str(self.idn).split("_", 1)
+        if len(parts) == 2:
+            return f"robot{parts[0]}_{parts[1]}_"
+        return f"robot{parts[0]}_"

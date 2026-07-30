@@ -1,0 +1,62 @@
+{
+    "type": "BASIC",
+    "body_parts": {
+        "arms": {
+            "right": {
+                "type": "JOINT_POSITION",
+                "input_max": 1,
+                "input_min": -1,
+                "input_type": "absolute",
+                "output_max": 0.5,
+                "output_min": -0.5,
+                "kp": 100,
+                "kd": 20,
+                "kv": 20,
+                "velocity_limits": [-3, 3],
+                "kp_limits": [0, 1000],
+                "interpolation": null,
+                "ramp_ratio": 0.2,
+                "gripper": {
+                    "type": "GRIP"
+                }
+            },
+            "left": {
+                "type": "JOINT_POSITION",
+                "input_max": 1,
+                "input_min": -1,
+                "input_type": "absolute",
+                "output_max": 0.5,
+                "output_min": -0.5,
+                "kp": 100,
+                "kd": 20,
+                "kv": 20,
+                "velocity_limits": [-3, 3],
+                "kp_limits": [0, 1000],
+                "interpolation": null,
+                "ramp_ratio": 0.2,
+                "gripper": {
+                    "type": "GRIP"
+                }
+            }
+        },
+        "head": {
+            "type": "JOINT_POSITION",
+            "input_max": 1,
+            "input_min": -1,
+            "input_type": "absolute",
+            "output_max": 0.5,
+            "output_min": -0.5,
+            "kp": 100,
+            "kd": 20,
+            "kv": 20,
+            "velocity_limits": [-2, 2],
+            "kp_limits": [0, 1000],
+            "interpolation": null,
+            "ramp_ratio": 0.2
+        },
+        "base": {
+            "type": "JOINT_VELOCITY",
+            "interpolation": "null"
+        }
+    }
+}

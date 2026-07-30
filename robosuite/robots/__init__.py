@@ -32,6 +32,7 @@ ROBOT_CLASS_MAPPING = {
     "PandaDexLH": FixedBaseRobot,
     "XArm7": FixedBaseRobot,
     "SOARM101": FixedBaseRobot,
+    "XLeRobot": WheeledRobot,
 }
 
 target_type_mapping = {
