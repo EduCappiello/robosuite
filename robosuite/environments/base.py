@@ -283,11 +283,14 @@ class MujocoEnv(metaclass=EnvMeta):
         # TODO(yukez): investigate black screen of death
         # Use hard reset if requested
 
-        # always terminate mjviewer
-        if self.renderer == "mjviewer":
+        reload_model = (self.sim is None) or (self.hard_reset and not self.deterministic_reset)
+
+        # A viewer can survive a soft reset because its model and data objects
+        # remain unchanged. Close it only when those objects will be replaced.
+        if self.renderer == "mjviewer" and reload_model:
             self._destroy_viewer()
 
-        if (self.sim is None) or (self.hard_reset and not self.deterministic_reset):
+        if reload_model:
             if self.renderer == "mujoco":
                 self._destroy_viewer()
                 self._destroy_sim()
