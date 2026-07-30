@@ -79,7 +79,10 @@ def compute_model_terms(model, data, robot) -> dict:
     # ---- tau_inertial  (M(q) @ qacc) -------------------------------------
     nv = model.nv
     M = np.zeros((nv, nv), dtype=np.float64)
-    mujoco.mj_fullM(model, M, data.qM)
+    try:
+        mujoco.mj_fullM(model, data, M)
+    except TypeError:
+        mujoco.mj_fullM(model, M, data.qM)
     tau_inertial = (M @ np.array(data.qacc))[dof_idx].astype(np.float64)
 
     # ---- tau_friction  (reconstruct, do NOT use qfrc_constraint) ---------
