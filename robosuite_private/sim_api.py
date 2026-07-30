@@ -46,6 +46,9 @@ class SOARM101Sim:
         self._env    = suite.make(**kwargs)
         self._robot  = None            # set after first reset()
         self._hooks: list[Callable] = []
+        self._viewer_camera_toggle = None
+        self._viewer_camera_toggle_attached = False
+        self._stop_requested = False
 
         # number of physics substeps per control step
         self._n_substeps: int = self._env.control_timestep // self._env.model_timestep  # type: ignore[operator]
@@ -61,6 +64,15 @@ class SOARM101Sim:
     def robot(self):
         """The primary robot instance (None before first reset)."""
         return self._robot
+
+    @property
+    def stop_requested(self) -> bool:
+        """Whether the interactive viewer requested a clean driver shutdown."""
+        return self._stop_requested
+
+    def request_stop(self) -> None:
+        """Request that the outer teleoperation loop stop at its next safe point."""
+        self._stop_requested = True
 
     def substep_hook(self, fn: Callable) -> None:
         """
@@ -82,9 +94,14 @@ class SOARM101Sim:
 
         Clears any registered substep hooks and re-sets self.robot.
         """
+        old_viewer = getattr(getattr(self._env, "viewer", None), "viewer", None)
         obs = self._env.reset()
+        new_viewer = getattr(getattr(self._env, "viewer", None), "viewer", None)
+        if old_viewer is not new_viewer:
+            self._viewer_camera_toggle_attached = False
         self._robot = self._env.robots[0]
         self._hooks = []
+        self._stop_requested = False
         return obs
 
     def step(self, goal_positions: np.ndarray) -> tuple[dict, float, bool, dict]:
@@ -111,7 +128,91 @@ class SOARM101Sim:
         interactive drivers (e.g. lerobot teleoperation) to watch the arm move.
         """
         self._env.render()
+        self._attach_viewer_camera_toggle()
 
+    def configure_viewer_camera_toggle(
+        self,
+        *,
+        camera_name: str | None = "robot0_gripper_cam",
+        key: str | None = "C",
+        start_locked: bool = False,
+    ) -> None:
+        """Configure viewer camera keys and the Q/Esc clean-stop hotkey.
+
+        Keys in the MuJoCo viewer:
+          C/G: lock to the configured camera (when enabled)
+          F: return to free mouse camera (when enabled)
+          Q/Esc: request a clean shutdown of the outer driver loop
+        """
+        self._viewer_camera_toggle = (
+            {
+                "camera_name": camera_name,
+                "key": key.upper()[0],
+                "locked": bool(start_locked),
+                "start_locked": bool(start_locked),
+            }
+            if camera_name and key
+            else None
+        )
+        self._viewer_camera_toggle_attached = False
+        self._attach_viewer_camera_toggle()
+
+    def _attach_viewer_camera_toggle(self) -> None:
+        cfg = self._viewer_camera_toggle
+        if self._viewer_camera_toggle_attached:
+            return
+        if not getattr(self._env, "has_renderer", False):
+            return
+
+        viewer = getattr(self._env, "viewer", None)
+        if viewer is None or not hasattr(viewer, "add_keypress_callback"):
+            return
+
+        def set_viewer_camera(locked: bool) -> None:
+            if cfg is None:
+                return
+            camera_name = cfg["camera_name"]
+            camera_id = self._env.sim.model.camera_name2id(camera_name) if locked else -1
+            if locked and camera_id < 0:
+                print(f"[robosuite] Viewer camera {camera_name!r} not found; staying in free camera.")
+                cfg["locked"] = False
+                viewer.set_camera(-1)
+                return
+            cfg["locked"] = locked
+            viewer.set_camera(camera_id)
+            mode = camera_name if locked else "free mouse camera"
+            print(f"[robosuite] Viewer camera: {mode}")
+
+        def on_keypress(keycode: int) -> None:
+            # GLFW_KEY_ESCAPE is 256. Q is also checked by character so this
+            # remains independent of which window owns the console focus.
+            if keycode == 256:
+                self.request_stop()
+                print("[robosuite] Viewer stop requested; shutting down cleanly...")
+                return
+            try:
+                pressed = chr(keycode).upper()
+            except (TypeError, ValueError):
+                return
+            if pressed == "Q":
+                self.request_stop()
+                print("[robosuite] Viewer stop requested; shutting down cleanly...")
+            elif cfg is not None and (pressed == "G" or pressed == cfg["key"]):
+                set_viewer_camera(True)
+            elif cfg is not None and pressed == "F":
+                set_viewer_camera(False)
+
+        viewer.add_keypress_callback(on_keypress)
+        self._viewer_camera_toggle_attached = True
+        if cfg is None:
+            print("[robosuite] Viewer hotkeys: Q/Esc=stop")
+        else:
+            print(
+                f"[robosuite] Viewer hotkeys: {cfg['key']}/G={cfg['camera_name']}, "
+                "F=free mouse camera, Q/Esc=stop"
+            )
+        if cfg is not None and cfg["start_locked"]:
+            set_viewer_camera(True)
     def _step_with_hooks(self, goal_positions: np.ndarray) -> tuple[dict, float, bool, dict]:
         """
         Step with per-substep hook firing.
@@ -159,6 +260,58 @@ class SOARM101Sim:
         """Render camera frames from the current simulation state."""
         from robosuite_private.rendering.cameras import get_camera_frames
         return get_camera_frames(self._env, camera_names, width, height)
+
+    def get_camera_rgbd_frames(
+        self,
+        camera_names: list[str] | None = None,
+        width: int = 640,
+        height: int = 480,
+    ) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+        """Render RGB and metric uint16 depth from the current simulation state."""
+        from robosuite_private.rendering.cameras import get_camera_rgbd_frames
+
+        return get_camera_rgbd_frames(self._env, camera_names, width, height)
+
+    def get_task_state(self) -> dict[str, float]:
+        """Return simulation-only task labels for dataset recording.
+
+        PnP environments expose the manipulated cup through env.cube for
+        compatibility with the original Lift task. The free-joint qpos is in
+        world coordinates and uses MuJoCo's [x, y, z, qw, qx, qy, qz] order.
+        """
+        state = {
+            "cup_pos_x": 0.0,
+            "cup_pos_y": 0.0,
+            "cup_pos_z": 0.0,
+            "cup_quat_w": 1.0,
+            "cup_quat_x": 0.0,
+            "cup_quat_y": 0.0,
+            "cup_quat_z": 0.0,
+            "success": 0.0,
+            "failure": 0.0,
+        }
+
+        cup = getattr(self._env, "cube", None)
+        if cup is not None and getattr(cup, "joints", None):
+            qpos = np.asarray(self._env.sim.data.get_joint_qpos(cup.joints[0]), dtype=float)
+            if qpos.shape[0] >= 7:
+                state.update(
+                    {
+                        "cup_pos_x": float(qpos[0]),
+                        "cup_pos_y": float(qpos[1]),
+                        "cup_pos_z": float(qpos[2]),
+                        "cup_quat_w": float(qpos[3]),
+                        "cup_quat_x": float(qpos[4]),
+                        "cup_quat_y": float(qpos[5]),
+                        "cup_quat_z": float(qpos[6]),
+                    }
+                )
+
+        success = getattr(self._env, "task_success", False)
+        failure = getattr(self._env, "task_failed", False)
+        state["success"] = float(success) if not callable(success) else 0.0
+        state["failure"] = float(failure) if not callable(failure) else 0.0
+        return state
 
     def close(self) -> None:
         self._env.close()

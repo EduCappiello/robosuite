@@ -54,3 +54,45 @@ def get_camera_frames(
         frames[name] = raw[::convention].astype(np.uint8)
 
     return frames
+
+
+def get_camera_rgbd_frames(
+    env,
+    camera_names: list[str] | None = None,
+    width: int = 640,
+    height: int = 480,
+) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+    """Render RGB plus metric uint16 depth in millimetres."""
+    if not env.has_offscreen_renderer:
+        raise RuntimeError(
+            "get_camera_rgbd_frames requires has_offscreen_renderer=True"
+        )
+
+    if camera_names is None:
+        camera_names = list(env.camera_names) if env.camera_names else []
+
+    import robosuite.macros as macros
+    from robosuite.utils.mjcf_utils import IMAGE_CONVENTION_MAPPING
+
+    convention = IMAGE_CONVENTION_MAPPING[macros.IMAGE_CONVENTION]
+    frames: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+    for name in camera_names:
+        rgb, normalized_depth = env.sim.render(
+            camera_name=name,
+            width=width,
+            height=height,
+            depth=True,
+        )
+        extent = env.sim.model.stat.extent
+        far = env.sim.model.vis.map.zfar * extent
+        near = env.sim.model.vis.map.znear * extent
+        depth_m = near / (1.0 - normalized_depth * (1.0 - near / far))
+        depth_mm = np.clip(np.rint(depth_m * 1000.0), 0, np.iinfo(np.uint16).max).astype(
+            np.uint16
+        )
+        frames[name] = (
+            rgb[::convention].astype(np.uint8),
+            depth_mm[::convention],
+        )
+
+    return frames
