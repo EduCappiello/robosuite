@@ -6,31 +6,26 @@ from robosuite.environments.manipulation.soarm101_lift import SOARM101Lift
 from robosuite.utils.observables import Observable, sensor
 
 
-class cupPnP_task1(SOARM101Lift):
+class SOARM101PnPCup(SOARM101Lift):
     """
-    Independent cup pick-and-place task with the task1 table layout.
+    Pick-and-place task for SOARM101: move the cup from the table into the
+    coffee machine cup bay.
 
-    Its sensors, reward, reset behavior, and success / failure conditions match
-    SOARM101PnPCup. Only the main-table height, support table, robot base, cup,
-    and coffee-machine positions differ.
+    This task intentionally reuses SOARM101Lift's scene construction so the
+    tuned coffee machine, cup, gripper camera, friction, and collision setup stay
+    in one place. The task-specific part is the coffee-bay target volume,
+    success condition, and reward.
     """
 
     def __init__(
         self,
         *args,
         coffee_target_half_size=(0.035, 0.040, 0.015),
-        cup_start_offset=(-0.37, 0.22, 0.0),
+        cup_start_offset=(-0.11, 0.15, 0.0),
         cup_start_yaw_deg=0.0,
         success_hold_steps=3,
         cup_max_tilt_deg=45.0,
         cup_failure_tilt_deg=80.0,
-        cart_full_size=(0.35, 0.45, 0.04),
-        cart_top_height=0.77,
-        main_table_top_height=0.865,
-        cart_gap=0.01,
-        robot_on_cart_offset=(-0.07, 0.10, 0.0),
-        coffee_machine_offset=(-0.19, 0.0, 0.0),
-        head_camera_robot_offset=(-0.402, -0.250, 0.46065),
         reward_shaping=True,
         **kwargs,
     ):
@@ -41,42 +36,11 @@ class cupPnP_task1(SOARM101Lift):
         self.cup_max_tilt_deg = float(cup_max_tilt_deg)
         self.cup_failure_tilt_deg = float(cup_failure_tilt_deg)
         self._success_counter = 0
-
-        table_full_size = np.array(kwargs.get("table_full_size", (0.8, 0.8, 0.05)), dtype=float)
-        cart_full_size = np.array(cart_full_size, dtype=float)
-        cart_center_x = -(table_full_size[0] + cart_full_size[0]) / 2.0 - float(cart_gap)
-        cart_top = np.array([cart_center_x, 0.0, float(cart_top_height)], dtype=float)
-
-        self.cart_full_size = cart_full_size
-        self.cart_top = cart_top
-        self.main_table_top_height = float(main_table_top_height)
-        self.cart_gap = float(cart_gap)
-        self.head_camera_robot_offset = np.array(head_camera_robot_offset, dtype=float)
-
-        kwargs.setdefault("coffee_machine_offset", coffee_machine_offset)
-        kwargs.setdefault("robot_support_table_full_size", cart_full_size)
-        kwargs.setdefault("robot_support_table_offset", cart_top)
-        kwargs.setdefault("robot_support_robot_offset", robot_on_cart_offset)
-        self.robot_base_pos = (
-            np.array(kwargs["robot_support_table_offset"], dtype=float)
-            + np.array(kwargs["robot_support_robot_offset"], dtype=float)
-        )
+        kwargs.setdefault("coffee_machine_offset", (0.17, 0.0, 0.0))
         super().__init__(*args, reward_shaping=reward_shaping, **kwargs)
 
     def _load_model(self):
-        # TableArena defines table_offset Z as the tabletop surface.
-        self.table_offset = np.array([0.0, 0.0, self.main_table_top_height], dtype=float)
         super()._load_model()
-
-        # Keep the physical head cameras at the same robot-relative extrinsic
-        # as SOARM101PnPCup. Their intrinsics and orientation come unchanged
-        # from SOARM101Lift; only the world-space position follows this robot.
-        head_camera_pos = self.robot_base_pos + self.head_camera_robot_offset
-        for camera_name in ("top", "rear"):
-            camera = self.model.worldbody.find(f".//camera[@name='{camera_name}']")
-            if camera is None:
-                raise ValueError(f"Missing expected camera: {camera_name}")
-            camera.set("pos", " ".join(str(float(v)) for v in head_camera_pos))
 
         center, low, high = self._cup_bay_center_and_bounds()
         pad_center = center.copy()
@@ -84,6 +48,7 @@ class cupPnP_task1(SOARM101Lift):
         pad_half_size = 0.5 * (high - low)
         pad_half_size[2] = 0.0015
 
+        # Keep one target marker only: white while active, green after success.
         ET.SubElement(
             self.model.worldbody,
             "geom",
@@ -109,6 +74,7 @@ class cupPnP_task1(SOARM101Lift):
         low = center - half_size
         high = center + half_size
 
+        # A successful cup must have its full 6 cm footprint supported by the tray.
         low[0] = max(low[0], float(self.coffee_tray_center_x_bounds[0]))
         high[0] = min(high[0], float(self.coffee_tray_center_x_bounds[1]))
         if np.any(low >= high):
@@ -134,7 +100,6 @@ class cupPnP_task1(SOARM101Lift):
         cup_rotation = np.array(self.sim.data.body_xmat[self.cube_body_id], dtype=float).reshape(3, 3)
         cup_up_world = cup_rotation[:, 2]
         return bool(cup_up_world[2] < np.cos(np.deg2rad(self.cup_failure_tilt_deg)))
-
     @property
     def task_success(self):
         return self._success_counter >= self.success_hold_steps
@@ -211,15 +176,10 @@ class cupPnP_task1(SOARM101Lift):
             def cup_upright(obs_cache):
                 return np.array([float(self._cup_is_upright())])
 
-            for observable_sensor in (
-                coffee_target_pos,
-                cup_to_coffee_target,
-                cup_in_coffee_target,
-                cup_upright,
-            ):
-                observables[observable_sensor.__name__] = Observable(
-                    name=observable_sensor.__name__,
-                    sensor=observable_sensor,
+            for s in (coffee_target_pos, cup_to_coffee_target, cup_in_coffee_target, cup_upright):
+                observables[s.__name__] = Observable(
+                    name=s.__name__,
+                    sensor=s,
                     sampling_rate=self.control_freq,
                 )
 

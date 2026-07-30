@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mujoco model="coffee_machine_block_xlerobot">
+  <option timestep="0.002" gravity="0 0 -9.81" />
+  <compiler angle="radian" />
+  <asset>
+    <material name="machine_black" rgba="0.02 0.02 0.02 1" shininess="0.15" specular="0.05" />
+    <material name="machine_back" rgba="0.03 0.03 0.03 1" shininess="0.10" specular="0.03" />
+    <material name="brew_head" rgba="0.10 0.10 0.10 1" shininess="0.20" specular="0.10" />
+    <material name="front_panel" rgba="0.65 0.62 0.56 1" shininess="0.20" specular="0.12" />
+    <material name="water_tank" rgba="0.65 0.75 0.78 0.35" shininess="0.30" specular="0.15" />
+    <material name="control_panel" rgba="0.035 0.035 0.035 1" shininess="0.08" specular="0.03" />
+    <material name="button_ring" rgba="0.48 0.48 0.46 1" shininess="0.25" specular="0.18" />
+    <material name="button_face" rgba="0.09 0.09 0.09 1" shininess="0.12" specular="0.06" />
+  </asset>
+  <default>
+    <default class="visual">
+      <geom type="box" group="1" contype="0" conaffinity="0" />
+    </default>
+    <default class="collision">
+      <geom type="box" group="0" contype="1" conaffinity="1" condim="4" friction="0.95 0.3 0.1" solimp="0.998 0.998 0.001" solref="0.001 1" />
+    </default>
+    <default class="region">
+      <geom type="box" group="1" contype="0" conaffinity="0" rgba="0 1 0 0" />
+    </default>
+  </default>
+  <worldbody>
+    <body>
+      <!--
+        Reconstructed from the original SOARM101 block-machine implementation.
+
+        Overall dimensions: depth X = 0.277 m, width Y = 0.245 m,
+        height Z = 0.434 m. The object origin is at the center of its
+        footprint on the supporting surface. Local -X is the front and local
+        +Y is the side that remains open around the cup bay.
+      -->
+      <body name="object">
+        <geom class="visual" name="base_visual" pos="0 0 0.0175" size="0.1385 0.1225 0.0175" material="machine_black" />
+        <geom class="collision" name="base" pos="0 0 0.0175" size="0.1385 0.1225 0.0175" />
+        <!-- The +Y wall starts above the bay so the front-left side is open. -->
+        <geom class="visual" name="left_upper_wall_visual" pos="0 0.09875 0.2895" size="0.1385 0.02375 0.1445" material="machine_black" />
+        <geom class="collision" name="left_upper_wall" pos="0 0.09875 0.2895" size="0.1385 0.02375 0.1445" />
+        <geom class="visual" name="right_wall_visual" pos="0 -0.09875 0.217" size="0.1385 0.02375 0.217" material="machine_black" />
+        <geom class="collision" name="right_wall" pos="0 -0.09875 0.217" size="0.1385 0.02375 0.217" />
+        <geom class="visual" name="back_visual" pos="0.121 0 0.217" size="0.0175 0.1225 0.217" material="machine_back" />
+        <geom class="collision" name="back" pos="0.121 0 0.217" size="0.0175 0.1225 0.217" />
+        <!-- The lower face is at z=0.145, leaving 0.110 m above the base. -->
+        <geom class="visual" name="upper_body_visual" pos="0 0 0.2895" size="0.1385 0.1225 0.1445" material="machine_black" />
+        <geom class="collision" name="upper_body" pos="0 0 0.2895" size="0.1385 0.1225 0.1445" />
+        <geom class="visual" name="brew_head_visual" pos="-0.0554 0 0.160" size="0.045 0.055 0.015" material="brew_head" />
+        <geom class="collision" name="brew_head" pos="-0.0554 0 0.160" size="0.045 0.055 0.015" />
+        <!-- Collision was enabled on this panel in the final block version. -->
+        <geom class="visual" name="front_panel_visual" pos="-0.1265 0 0.225" size="0.012 0.075 0.080" material="front_panel" />
+        <geom class="collision" name="front_panel" pos="-0.1265 0 0.225" size="0.012 0.075 0.080" />
+        <geom class="visual" name="water_tank_visual" pos="0 -0.0637 0.300" size="0.1185 0.030 0.105" material="water_tank" />
+        <!-- Nominal center for a 6 cm diameter, 10 cm tall cup. -->
+        <!--
+          Seven-button panel matching the reference: two columns by three rows,
+          plus a centered power button. Local -X is outward; pressing moves +X.
+        -->
+        <geom class="visual" name="control_panel_visual" pos="-0.1390 -0.09875 0.088" size="0.0005 0.0210 0.0510" material="control_panel" />
+
+        <body name="button_top_left" pos="-0.14075 -0.0870 0.123">
+          <joint name="button_top_left_joint" type="slide" axis="1 0 0" limited="true" range="0 0.006" stiffness="80" damping="0.2" armature="0.00001" />
+          <geom class="visual" name="button_top_left_ring" type="cylinder" pos="0.00075 0 0" size="0.0065 0.0015" euler="0 1.5707963 0" material="button_ring" />
+          <geom class="visual" name="button_top_left_face" type="cylinder" pos="-0.00125 0 0" size="0.0052 0.0010" euler="0 1.5707963 0" material="button_face" />
+          <geom class="collision" name="button_top_left_collision" type="cylinder" size="0.0065 0.00225" euler="0 1.5707963 0" />
+          <site name="button_top_left_touch_site" type="cylinder" size="0.0066 0.0023" euler="0 1.5707963 0" rgba="0 0 0 0" />
+        </body>
+        <body name="button_top_right" pos="-0.14075 -0.1105 0.123">
+          <joint name="button_top_right_joint" type="slide" axis="1 0 0" limited="true" range="0 0.006" stiffness="80" damping="0.2" armature="0.00001" />
+          <geom class="visual" name="button_top_right_ring" type="cylinder" pos="0.00075 0 0" size="0.0065 0.0015" euler="0 1.5707963 0" material="button_ring" />
+          <geom class="visual" name="button_top_right_face" type="cylinder" pos="-0.00125 0 0" size="0.0052 0.0010" euler="0 1.5707963 0" material="button_face" />
+          <geom class="collision" name="button_top_right_collision" type="cylinder" size="0.0065 0.00225" euler="0 1.5707963 0" />
+          <site name="button_top_right_touch_site" type="cylinder" size="0.0066 0.0023" euler="0 1.5707963 0" rgba="0 0 0 0" />
+        </body>
+
+        <body name="button_middle_left" pos="-0.14075 -0.0870 0.101">
+          <joint name="button_middle_left_joint" type="slide" axis="1 0 0" limited="true" range="0 0.006" stiffness="80" damping="0.2" armature="0.00001" />
+          <geom class="visual" name="button_middle_left_ring" type="cylinder" pos="0.00075 0 0" size="0.0065 0.0015" euler="0 1.5707963 0" material="button_ring" />
+          <geom class="visual" name="button_middle_left_face" type="cylinder" pos="-0.00125 0 0" size="0.0052 0.0010" euler="0 1.5707963 0" material="button_face" />
+          <geom class="collision" name="button_middle_left_collision" type="cylinder" size="0.0065 0.00225" euler="0 1.5707963 0" />
+          <site name="button_middle_left_touch_site" type="cylinder" size="0.0066 0.0023" euler="0 1.5707963 0" rgba="0 0 0 0" />
+        </body>
+        <body name="brew_button" pos="-0.14075 -0.1105 0.101">
+          <joint name="brew_button_joint" type="slide" axis="1 0 0" limited="true" range="0 0.006" stiffness="80" damping="0.2" armature="0.00001" />
+          <geom class="visual" name="brew_button_ring" type="cylinder" pos="0.00075 0 0" size="0.0065 0.0015" euler="0 1.5707963 0" material="button_ring" />
+          <geom class="visual" name="brew_button_face" type="cylinder" pos="-0.00125 0 0" size="0.0052 0.0010" euler="0 1.5707963 0" material="button_face" />
+          <geom class="collision" name="brew_button_collision" type="cylinder" size="0.0065 0.00225" euler="0 1.5707963 0" />
+          <site name="brew_button_touch_site" type="cylinder" size="0.0066 0.0023" euler="0 1.5707963 0" rgba="0 0 0 0" />
+        </body>
+
+        <body name="button_lower_left" pos="-0.14075 -0.0870 0.079">
+          <joint name="button_lower_left_joint" type="slide" axis="1 0 0" limited="true" range="0 0.006" stiffness="80" damping="0.2" armature="0.00001" />
+          <geom class="visual" name="button_lower_left_ring" type="cylinder" pos="0.00075 0 0" size="0.0065 0.0015" euler="0 1.5707963 0" material="button_ring" />
+          <geom class="visual" name="button_lower_left_face" type="cylinder" pos="-0.00125 0 0" size="0.0052 0.0010" euler="0 1.5707963 0" material="button_face" />
+          <geom class="collision" name="button_lower_left_collision" type="cylinder" size="0.0065 0.00225" euler="0 1.5707963 0" />
+          <site name="button_lower_left_touch_site" type="cylinder" size="0.0066 0.0023" euler="0 1.5707963 0" rgba="0 0 0 0" />
+        </body>
+        <body name="button_lower_right" pos="-0.14075 -0.1105 0.079">
+          <joint name="button_lower_right_joint" type="slide" axis="1 0 0" limited="true" range="0 0.006" stiffness="80" damping="0.2" armature="0.00001" />
+          <geom class="visual" name="button_lower_right_ring" type="cylinder" pos="0.00075 0 0" size="0.0065 0.0015" euler="0 1.5707963 0" material="button_ring" />
+          <geom class="visual" name="button_lower_right_face" type="cylinder" pos="-0.00125 0 0" size="0.0052 0.0010" euler="0 1.5707963 0" material="button_face" />
+          <geom class="collision" name="button_lower_right_collision" type="cylinder" size="0.0065 0.00225" euler="0 1.5707963 0" />
+          <site name="button_lower_right_touch_site" type="cylinder" size="0.0066 0.0023" euler="0 1.5707963 0" rgba="0 0 0 0" />
+        </body>
+
+        <body name="button_power" pos="-0.14075 -0.09875 0.051">
+          <joint name="button_power_joint" type="slide" axis="1 0 0" limited="true" range="0 0.006" stiffness="80" damping="0.2" armature="0.00001" />
+          <geom class="visual" name="button_power_ring" type="cylinder" pos="0.00075 0 0" size="0.0068 0.0015" euler="0 1.5707963 0" material="button_ring" />
+          <geom class="visual" name="button_power_face" type="cylinder" pos="-0.00125 0 0" size="0.0055 0.0010" euler="0 1.5707963 0" material="button_face" />
+          <geom class="collision" name="button_power_collision" type="cylinder" size="0.0068 0.00225" euler="0 1.5707963 0" />
+          <site name="button_power_touch_site" type="cylinder" size="0.0069 0.0023" euler="0 1.5707963 0" rgba="0 0 0 0" />
+        </body>
+
+        <site name="receptacle_place_site" type="sphere" pos="-0.0554 0 0.085" size="0.005" rgba="0 0 0 0" />
+        <!-- Full model bounds, used by RoboCasa fixture placement utilities. -->
+        <geom class="region" name="reg_main" pos="0 0 0.217" size="0.1385 0.1225 0.217" />
+      </body>
+    </body>
+  </worldbody>
+  <sensor>
+    <touch name="button_top_left_touch" site="button_top_left_touch_site" />
+    <touch name="button_top_right_touch" site="button_top_right_touch_site" />
+    <touch name="button_middle_left_touch" site="button_middle_left_touch_site" />
+    <touch name="brew_button_touch" site="brew_button_touch_site" />
+    <touch name="button_lower_left_touch" site="button_lower_left_touch_site" />
+    <touch name="button_lower_right_touch" site="button_lower_right_touch_site" />
+    <touch name="button_power_touch" site="button_power_touch_site" />
+  </sensor>
+</mujoco>
