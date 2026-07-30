@@ -34,11 +34,16 @@ class SOARM101(ManipulatorModel):
     def init_qpos(self):
         # Episode-1 frame-0 pose from hpi_boxes_standard (exact):
         #   pan 5.01, shoulder_lift -104.13, elbow_flex 96.48, wrist_flex 77.80, wrist_roll 96.31 (deg).
-        # Only elbow_flex is changed: unfolded ~8 deg (96.5 -> 88.5) so the folded gripper clears
-        # the table (the exact elbow dips the gripper ~18 mm into the table -- a sim height offset;
-        # the real pose is collision-free). All other joints, incl. wrist_roll (1.6809), are exact.
+        # Two joints deviate from the real pose:
+        #   - elbow_flex unfolded ~8 deg (96.5 -> 88.5) so the folded gripper clears the table
+        #     (the exact elbow dips the gripper ~18 mm into the table -- a sim height offset;
+        #     the real pose is collision-free).
+        #   - shoulder_lift clamped -1.8174 -> -1.7353: the real calibrated range exceeds the
+        #     model's +/-1.7453 rad limit, and an out-of-range init fires MuJoCo's joint-limit
+        #     constraint at reset (~4-7 N.m phantom torque that breaks the tau_ext_residual
+        #     free-space identity and pollutes episode-start force data). 0.01 rad margin.
         # [pan, shoulder_lift, elbow_flex, wrist_flex, wrist_roll] (rad). Reset is deterministic.
-        return np.array([0.0875, -1.8174, 1.5443, 1.3579, 1.6809])
+        return np.array([0.0875, -1.7353, 1.5443, 1.3579, 1.6809])
 
     @property
     def base_xpos_offset(self):

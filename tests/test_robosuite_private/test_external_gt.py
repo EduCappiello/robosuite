@@ -45,6 +45,10 @@ def env_robot():
         ignore_done=True,
         use_camera_obs=False,
         control_freq=20,
+        # Identity tests assume the exact contact-free init pose; default gaussian
+        # reset noise (sigma=0.02 rad) can push shoulder_lift into its joint limit,
+        # which fires a limit-constraint torque and (correctly) breaks the residual.
+        initialization_noise=None,
     )
     env.reset()
     robot = env.robots[0]

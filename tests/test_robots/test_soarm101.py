@@ -69,6 +69,33 @@ def test_soarm101_robot_loads():
     assert robot.gripper["right"].actuators == ["robot0_gripper"]
 
 
+def test_soarm101_init_qpos_within_joint_ranges():
+    """An out-of-range init pose fires MuJoCo's joint-limit constraint at reset,
+    injecting phantom torque into the GT residual (root cause of the 2026-07-30
+    test_external_gt failures: shoulder_lift -1.8174 vs range +/-1.7453)."""
+    from robosuite.models.robots.manipulators.soarm101_robot import SOARM101
+
+    arm_root = ET.parse(
+        ASSET_ROOT / "robots" / "SOARM101" / "SO101" / "soarm_with_sensor.xml"
+    ).getroot()
+    joint_order = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll"]
+    ranges = {}
+    for joint in arm_root.findall(".//joint"):
+        name = joint.get("name")
+        if name in joint_order and joint.get("range"):
+            ranges[name] = np.fromstring(joint.get("range"), sep=" ")
+    assert set(ranges) == set(joint_order)
+
+    init_qpos = SOARM101(idn=0).init_qpos
+    margin = 0.005
+    for name, q0 in zip(joint_order, init_qpos):
+        lo, hi = ranges[name]
+        assert lo + margin <= q0 <= hi - margin, (
+            f"{name}: init_qpos {q0:+.4f} outside safe range "
+            f"[{lo + margin:+.4f}, {hi - margin:+.4f}]"
+        )
+
+
 def test_so101_gripper_contact_is_stiff_and_force_limited():
     gripper_root = ET.parse(ASSET_ROOT / "grippers" / "so101_gripper.xml").getroot()
     arm_root = ET.parse(
@@ -176,11 +203,11 @@ def test_soarm101_custom_lift_uses_null_mount_and_custom_mass():
 
     try:
         assert env.robots[0].robot_model.base.__class__.__name__ == "NullMount"
-        expected_density = 0.12 / (8.0 * 0.018 * 0.018 * 0.018)
-        assert np.isclose(env.cube.density, expected_density)
         assert np.allclose(env.placement_initializer.reference_pos, env.table_offset + env.cube_offset)
 
         env.reset()
+        # cube_mass is applied to the compiled cup body (cup XML native mass is 0.015).
+        assert np.isclose(env.sim.model.body_mass[env.cube_body_id], 0.12)
         action = np.zeros(env.action_spec[0].shape)
         obs, reward, done, info = env.step(action)
 

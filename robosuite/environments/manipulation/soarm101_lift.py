@@ -37,7 +37,7 @@ class SOARM101Lift(Lift):
         reward_scale=1.0,
         reward_shaping=False,
         placement_initializer=None,
-        cube_mass=0.015,
+        cube_mass=None,   # None = keep the cup XML's native mass (0.015 kg dry / 0.215 kg water)
         cube_yaw_range_deg=(0.0, 45.0),
         cube_offset=(-0.17, -0.15, 0.0),
         coffee_machine_offset=(0.19, 0.0, 0.0),
@@ -74,8 +74,11 @@ class SOARM101Lift(Lift):
     ):
         self.cube_mass = cube_mass
         # Planar (yaw) orientation range for the box, re-sampled every reset by the placement
-        # sampler. Per-episode colour + mass are applied on the LIVE model by the robot's
-        # dress_cube() (see RobosuiteSimFollower) — no env rebuild needed for those.
+        # sampler. Per-episode colour + mass can also be applied on the LIVE model by
+        # dress_cube() (see scripts/sim_validation on the lerobot side) — no env rebuild needed.
+        # cube_mass (when not None) is applied to the compiled model in _setup_references,
+        # scaling the cup body's inertia proportionally; the payload knob for estimator
+        # validation sweeps (48/102/203 g style).
         self.cube_yaw_range_deg = tuple(cube_yaw_range_deg)
         self.cube_offset = np.array(cube_offset)
         self.coffee_machine_offset = np.array(coffee_machine_offset)
@@ -281,7 +284,10 @@ class SOARM101Lift(Lift):
                 rotation_axis="z",
                 ensure_object_boundary_in_range=False,
                 ensure_valid_placement=True,
-                reference_pos=self.table_offset + np.array([0.055, 0.0, 0.0]),
+                # cube_offset is the caller's placement knob (scene-match / payload
+                # harness). The PnP task envs ignore this sampler and set the cup
+                # pose directly from their own cup_start_offset at reset.
+                reference_pos=self.table_offset + self.cube_offset,
                 z_offset=0.005,
                 rng=self.rng,
             )
@@ -347,6 +353,16 @@ class SOARM101Lift(Lift):
             # ManipulationTask merges an object's body and assets. Merge the
             # block machine's button sensors and self-contact exclusion too.
             self.model.merge(self.coffee_machine, merge_body=None)
+
+    def _setup_references(self):
+        super()._setup_references()
+        # Apply the requested payload mass to the cup body on the compiled model,
+        # scaling its rotational inertia by the same ratio. Idempotent across resets.
+        if self.cube_mass is not None:
+            current = float(self.sim.model.body_mass[self.cube_body_id])
+            ratio = self.cube_mass / current
+            self.sim.model.body_mass[self.cube_body_id] *= ratio
+            self.sim.model.body_inertia[self.cube_body_id] *= ratio
 
     def _add_robot_support_table(self, mujoco_arena):
         """Add the optional fixed cart-sized table used to support the robot."""

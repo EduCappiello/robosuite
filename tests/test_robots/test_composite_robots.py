@@ -87,6 +87,12 @@ def test_composite_robot_base_combinations(robot, base):
 @pytest.mark.parametrize("robot", TEST_ROBOTS)
 @pytest.mark.parametrize("gripper", GRIPPER_MAPPING.keys())
 def test_composite_robot_gripper_combinations(robot, gripper):
+    if gripper in ("SO101Gripper", "XLeRobotGripper"):
+        # Robot-specific adapters, not general-purpose grippers: the SO-101 jaw is
+        # mechanically part of the SO-101 arm, and both classes deliberately use the
+        # robot{N}_(arm_) namespace (so the jaw reads as the arm's 6th motor), which
+        # collides with other robots' own body names (e.g. GR1's right_eef).
+        pytest.skip(f"{gripper} is a SOARM101/XLeRobot-specific adapter")
     if is_robosuite_robot(robot):
         if robot in ["Tiago"]:
             base = "NullMobileBase"
