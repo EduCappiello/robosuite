@@ -25,19 +25,40 @@ from __future__ import annotations
 import numpy as np
 
 
-def _arm_dof_indices(robot) -> list[int]:
-    """Return nv-space DOF indices for all 6 joints (arm then gripper).
+def _arm_joint_names(robot, arm: str = "right") -> list[str]:
+    """Prefixed arm-joint names belonging to `arm`.
 
-    Robot-agnostic: uses only the robot's own reference-index attributes, so the
-    same function works for any robosuite SingleArm robot whose arm is "right".
+    Uses robosuite's positional-split convention for bimanual models: the first
+    half of robot_model.arm_joints (XML document order) is "right", the second
+    "left" (see robots/mobile_robot.py::_joint_split_idx usage).
     """
-    return (
-        list(robot._ref_joint_vel_indexes)
-        + list(robot._ref_gripper_joint_vel_indexes["right"])
-    )
+    arms = list(getattr(robot, "arms", ["right"]))
+    arm_joints = list(robot.robot_model.arm_joints)
+    n = len(arm_joints) // len(arms)
+    start = arms.index(arm) * n
+    return arm_joints[start : start + n]
 
 
-def compute_model_terms(model, data, robot) -> dict:
+def _arm_dof_indices(robot, arm: str = "right") -> list[int]:
+    """Return nv-space DOF indices for the 6 joints of `arm` (5 arm then gripper).
+
+    Single-arm robots (SOARM101) keep the legacy behavior exactly: all robot
+    joints + the gripper. Bimanual robots (XLeRobot) use the positional split of
+    arm_joints plus that arm's gripper joint.
+    """
+    arms = list(getattr(robot, "arms", ["right"]))
+    if len(arms) == 1:
+        return (
+            list(robot._ref_joint_vel_indexes)
+            + list(robot._ref_gripper_joint_vel_indexes[arms[0]])
+        )
+    if arm not in arms:
+        raise ValueError(f"arm {arm!r} not in robot arms {arms}")
+    vel_idx = [robot.sim.model.get_joint_qvel_addr(j) for j in _arm_joint_names(robot, arm)]
+    return vel_idx + list(robot._ref_gripper_joint_vel_indexes[arm])
+
+
+def compute_model_terms(model, data, robot, arm: str = "right") -> dict:
     """
     Compute the rigid-body torque decomposition (ground_truth.model.*).
 
@@ -45,10 +66,12 @@ def compute_model_terms(model, data, robot) -> dict:
         model: mujoco.MjModel (env.sim.model._model)
         data:  mujoco.MjData  (env.sim.data._data)
         robot: robosuite robot instance (env.robots[0])
+        arm:   which arm on a bimanual robot ("right"/"left"); ignored for
+               single-arm robots (legacy behavior).
 
     Returns:
         dict with keys tau_motor, tau_gravity, tau_coriolis, tau_inertial,
-        tau_friction, tau_model — each (6,) float64.
+        tau_friction, tau_model — each (6,) float64 for the selected arm.
 
     Notes:
         - tau_gravity is computed by zeroing q̇ on a scratch MjData and reading
@@ -60,7 +83,7 @@ def compute_model_terms(model, data, robot) -> dict:
     """
     import mujoco
 
-    dof_idx = _arm_dof_indices(robot)
+    dof_idx = _arm_dof_indices(robot, arm)
 
     # ---- tau_motor -------------------------------------------------------
     tau_motor = np.array(data.qfrc_actuator)[dof_idx].astype(np.float64)

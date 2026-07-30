@@ -827,3 +827,21 @@ FIRST, then per mounted arm with the estimator gravity-rotation hook (set `model
 after `urdf_loader.py:93`, before the CasADi copy; codegen cache key must gain the mount rotation)
 → payload slope on-platform (cube_mass knob) → coffee tasks re-parented onto XLeRobot → sim E-FC
 (drive virtual base, arms free, GT contact = 0 by construction).
+
+### 2026-07-30 — M2: per-arm ground truth + motor signals (dual-arm oracle)
+
+- `dynamics_gt` generalized with an `arm` parameter; legacy single-arm path unchanged
+  (`_arm_dof_indices` keeps the exact SOARM101 behavior when `len(robot.arms)==1`).
+  New `_arm_joint_names` implements robosuite's positional right/left split;
+  `compute_model_terms` / `compute_external_terms` / `compute_contact_ext_torque` /
+  `get_ground_truth_dynamics(arm=..., arms=[...])` all take the arm; per-arm FT sensors
+  (`{prefix}{arm}_wrist_ft_*`) and per-arm eef site. `read_motor_signals(robot, kt, arm=)`
+  same treatment. `XLeRobotSim` facade added (Lift + XLeRobot, deterministic reset).
+- Verified (`test_xlerobot_gt.py`, 6 tests): per-arm schema; free-space residual ≈ 0 /
+  jac = 0 / contact = 0 on BOTH mounted arms (mount-frame gravity handled consistently);
+  T8 `jac == residual` per arm under a known load; **cross-arm isolation exact** (wrench
+  on one gripper ⇒ zeros on the other arm — the arms share only base-joint ancestors,
+  which are not arm DOFs); FT sensors read each arm's own distal load; per-arm motor
+  signals match the model qpos. Full suite: 73 green.
+- Deferred to M3: `robot_spec` canonical XLeRobot spec + per-arm `servo_raw` registers +
+  the lerobot-side dual-arm `robosuite_sim` follower; then EKF-vs-GT grading (E04).

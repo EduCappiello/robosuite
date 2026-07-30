@@ -20,27 +20,39 @@ import numpy as np
 from robosuite_private.robot_spec.canonical import SERVO_FORCE_RANGE
 
 
-def read_motor_signals(robot, kt: float) -> dict:
+def read_motor_signals(robot, kt: float, arm: str = "right") -> dict:
     """
-    Read motor signals from a robosuite SingleArmRobot at the current sim state.
+    Read motor signals from a robosuite robot at the current sim state.
 
     Args:
         robot: a robosuite robot instance (e.g. env.robots[0]) that has been
-               set up via setup_references().  Arm joint arm must be "right".
+               set up via setup_references().
         kt:    motor torque constant [N·m/A].  Use KT_DEFAULT from canonical.py
                as a starting point; pass a calibrated value per robot_id in
                production.
+        arm:   which arm on a bimanual robot ("right"/"left"); ignored for
+               single-arm robots (legacy behavior).
 
     Returns:
-        dict with keys: pos, vel_hw, current, current_signed, load, dt.
+        dict with keys: pos, vel_hw, current, current_signed, load, dt —
+        (6,) per selected arm (5 arm joints then gripper).
     """
     d = robot.sim.data
 
     # ---- index lists set up by robot.setup_references() -----------------
-    arm_pos_idx  = robot._ref_joint_pos_indexes          # list[int], len=5
-    arm_vel_idx  = robot._ref_joint_vel_indexes          # list[int], len=5 (nv)
-    grip_pos_idx = robot._ref_gripper_joint_pos_indexes["right"]   # list[int], len=1
-    grip_vel_idx = robot._ref_gripper_joint_vel_indexes["right"]   # list[int], len=1
+    arms = list(getattr(robot, "arms", ["right"]))
+    if len(arms) == 1:
+        arm = arms[0]
+        arm_pos_idx = robot._ref_joint_pos_indexes       # list[int], len=5
+        arm_vel_idx = robot._ref_joint_vel_indexes       # list[int], len=5 (nv)
+    else:
+        from robosuite_private.dynamics_gt.model_terms import _arm_joint_names
+
+        names = _arm_joint_names(robot, arm)
+        arm_pos_idx = [robot.sim.model.get_joint_qpos_addr(j) for j in names]
+        arm_vel_idx = [robot.sim.model.get_joint_qvel_addr(j) for j in names]
+    grip_pos_idx = robot._ref_gripper_joint_pos_indexes[arm]   # list[int], len=1
+    grip_vel_idx = robot._ref_gripper_joint_vel_indexes[arm]   # list[int], len=1
 
     all_pos_idx = list(arm_pos_idx)  + list(grip_pos_idx)
     all_vel_idx = list(arm_vel_idx)  + list(grip_vel_idx)

@@ -324,3 +324,28 @@ class SOARM101Sim:
 
     def __exit__(self, *_):
         self.close()
+
+
+class XLeRobotSim(SOARM101Sim):
+    """
+    SOARM101Sim facade with XLeRobot defaults: the 17-DoF dual-arm mobile robot
+    in a plain Lift scene (coffee tasks are re-parented onto XLeRobot in M4).
+
+    Action layout with default_xlerobot.json (17,):
+        [right arm 5, right grip 1, left arm 5, left grip 1, head 2, base vel 3]
+
+    Per-arm ground truth / motor signals: pass arm="right"/"left" to
+    get_ground_truth_dynamics(...) and read_motor_signals(...).
+    """
+
+    def __init__(self, env_kwargs: dict | None = None) -> None:
+        kwargs: dict = {
+            "env_name": "Lift",
+            "robots": ["XLeRobot"],
+            # Deterministic reset: identity tests and estimator comparisons
+            # assume the exact in-range init pose (see test_external_gt).
+            "initialization_noise": None,
+        }
+        if env_kwargs:
+            kwargs.update(env_kwargs)
+        super().__init__(kwargs)

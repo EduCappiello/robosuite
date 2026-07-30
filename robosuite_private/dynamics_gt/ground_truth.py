@@ -28,9 +28,11 @@ from robosuite_private.dynamics_gt.model_terms import _arm_dof_indices, compute_
 __all__ = ["get_ground_truth_dynamics", "_arm_dof_indices"]
 
 
-def get_ground_truth_dynamics(model, data, robot, *, grouped: bool = False, load_body=None) -> dict:
+def get_ground_truth_dynamics(
+    model, data, robot, *, grouped: bool = False, load_body=None, arm: str = "right", arms=None
+) -> dict:
     """
-    Compute the full ground-truth dynamics decomposition for the SOARM101.
+    Compute the full ground-truth dynamics decomposition.
 
     Args:
         model: mujoco.MjModel (from env.sim.model._model)
@@ -39,13 +41,26 @@ def get_ground_truth_dynamics(model, data, robot, *, grouped: bool = False, load
         grouped: if True, return {"model": {...}, "ext": {...}}; else a flat dict.
         load_body: optional body name carrying a known applied wrench (forwarded
             to compute_external_terms).  If None, auto-detect from xfrc_applied.
+        arm: which arm on a bimanual robot ("right"/"left"); ignored for
+            single-arm robots (legacy behavior).
+        arms: optional iterable of arm names — returns {arm: result} with one
+            (grouped or flat) result per arm. Overrides `arm`.
 
     Returns:
-        dict — grouped or flat per the `grouped` flag.
+        dict — grouped or flat per the `grouped` flag; keyed by arm when `arms`
+        is given.
     """
-    model_terms = compute_model_terms(model, data, robot)
+    if arms is not None:
+        return {
+            a: get_ground_truth_dynamics(
+                model, data, robot, grouped=grouped, load_body=load_body, arm=a
+            )
+            for a in arms
+        }
+
+    model_terms = compute_model_terms(model, data, robot, arm)
     ext_terms = compute_external_terms(
-        model, data, robot, load_body=load_body, model_terms=model_terms
+        model, data, robot, arm=arm, load_body=load_body, model_terms=model_terms
     )
 
     if grouped:

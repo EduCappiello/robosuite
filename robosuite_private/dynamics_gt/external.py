@@ -53,7 +53,7 @@ def _robot_body_ids(model, robot) -> set:
     return out
 
 
-def compute_contact_ext_torque(model, data, robot, *, dof_idx=None, return_contacts=False):
+def compute_contact_ext_torque(model, data, robot, *, arm="right", dof_idx=None, return_contacts=False):
     """External joint torque from the sim's ACTUAL contacts — robot↔world only.
 
     Unlike ``tau_ext_residual`` (τ_motor − τ_model, which absorbs friction, joint limits,
@@ -72,7 +72,7 @@ def compute_contact_ext_torque(model, data, robot, *, dof_idx=None, return_conta
     import mujoco
 
     if dof_idx is None:
-        dof_idx = _arm_dof_indices(robot)
+        dof_idx = _arm_dof_indices(robot, arm)
     robot_bodies = _robot_body_ids(model, robot)
     prefix = robot.robot_model.naming_prefix
 
@@ -150,18 +150,23 @@ def _find_applied_wrench(model, data, load_body):
     return bid, w_world, p_app
 
 
-def _read_ft_sensor(robot) -> np.ndarray:
-    """Raw wrist FT sensor wrench [F(3), M(3)] in the wrist body frame, or zeros."""
+def _read_ft_sensor(robot, arm: str = "right") -> np.ndarray:
+    """Raw wrist FT sensor wrench [F(3), M(3)] in the wrist body frame, or zeros.
+
+    Single-arm models name the sensors {prefix}wrist_ft_*; bimanual models
+    name them {prefix}{arm}_wrist_ft_* (see XLeRobot robot.xml).
+    """
     prefix = robot.robot_model.naming_prefix  # e.g. "robot0_"
+    stem = f"{arm}_wrist_ft" if len(getattr(robot, "arms", ["right"])) > 1 else "wrist_ft"
     try:
-        ft_force = robot.get_sensor_measurement(f"{prefix}wrist_ft_force")
-        ft_torque = robot.get_sensor_measurement(f"{prefix}wrist_ft_torque")
+        ft_force = robot.get_sensor_measurement(f"{prefix}{stem}_force")
+        ft_torque = robot.get_sensor_measurement(f"{prefix}{stem}_torque")
         return np.concatenate([ft_force, ft_torque]).astype(np.float64)
     except Exception:
         return np.zeros(6, dtype=np.float64)
 
 
-def compute_external_terms(model, data, robot, *, load_body=None, model_terms=None) -> dict:
+def compute_external_terms(model, data, robot, *, arm="right", load_body=None, model_terms=None) -> dict:
     """
     Compute the external-force ground truth (ground_truth.ext.*).
 
@@ -169,18 +174,21 @@ def compute_external_terms(model, data, robot, *, load_body=None, model_terms=No
         model: mujoco.MjModel
         data:  mujoco.MjData
         robot: robosuite robot instance (env.robots[0])
+        arm:   which arm on a bimanual robot ("right"/"left"); ignored for
+               single-arm robots (legacy behavior).
         load_body: optional body name carrying the known applied wrench.  If
                    None, auto-detect the first body with a nonzero xfrc_applied.
-        model_terms: optional precomputed compute_model_terms() dict (avoids a
-                   redundant recompute when called from the aggregator).
+        model_terms: optional precomputed compute_model_terms() dict FOR THE SAME
+                   ARM (avoids a redundant recompute when called from the
+                   aggregator).
 
     Returns:
-        dict matching the schema above.
+        dict matching the schema above, all quantities for the selected arm.
     """
-    dof_idx = _arm_dof_indices(robot)
+    dof_idx = _arm_dof_indices(robot, arm)
 
     if model_terms is None:
-        model_terms = compute_model_terms(model, data, robot)
+        model_terms = compute_model_terms(model, data, robot, arm)
     tau_motor = model_terms["tau_motor"]
     tau_gravity = model_terms["tau_gravity"]
     tau_coriolis = model_terms["tau_coriolis"]
@@ -210,7 +218,8 @@ def compute_external_terms(model, data, robot, *, load_body=None, model_terms=No
     tau_ext = tau_ext_jac if body_id is not None else tau_ext_residual
 
     # ---- tcp_wrench_ext: physical applied wrench transported to the TCP --
-    p_tcp = np.array(data.site_xpos[robot.eef_site_id["right"]], dtype=np.float64)
+    eef_arm = arm if arm in robot.eef_site_id else "right"
+    p_tcp = np.array(data.site_xpos[robot.eef_site_id[eef_arm]], dtype=np.float64)
     if body_id is not None:
         f = w_world[:3]
         t = w_world[3:]
@@ -221,12 +230,12 @@ def compute_external_terms(model, data, robot, *, load_body=None, model_terms=No
         tcp_wrench_ext = np.zeros(6, dtype=np.float64)
 
     # ---- tcp_wrench_ft: raw FT sensor (diagnostic only) -----------------
-    tcp_wrench_ft = _read_ft_sensor(robot)
+    tcp_wrench_ft = _read_ft_sensor(robot, arm)
 
     # ---- tau_ext_contact: from the sim's ACTUAL external contacts -------
     # Clean FF signal: 0 in free space, real reaction on table/cube/grasp contact, ignores
     # self-collision and is immune to the controller saturation/friction that pollute the residual.
-    tau_ext_contact = compute_contact_ext_torque(model, data, robot, dof_idx=dof_idx)
+    tau_ext_contact = compute_contact_ext_torque(model, data, robot, arm=arm, dof_idx=dof_idx)
 
     return {
         "tau_ext": tau_ext,
