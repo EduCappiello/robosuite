@@ -13,15 +13,18 @@ class cupPnP_task3(SOARM101Lift):
         coffee_target_half_size=(0.035, 0.040, 0.015),
         cup_start_yaw_deg=0.0,
         cart_target_offset=(0.11, -0.16, 0.0),
-        success_hold_steps=3,
+        success_hold_steps=40,
         cup_max_tilt_deg=45.0,
         cup_failure_tilt_deg=80.0,
+        gripper_clearance_m=0.08,
+        cup_linear_speed_limit=0.02,
+        cup_angular_speed_limit=0.35,
         cart_full_size=(0.35, 0.45, 0.04),
         cart_top_height=0.77,
         main_table_top_height=0.865,
         cart_gap=0.01,
         robot_on_cart_offset=(-0.07, 0.10, 0.0),
-        coffee_machine_offset=(-0.16, 0.0, 0.0),
+        coffee_machine_offset=(-0.19, 0.0, 0.0),
         head_camera_robot_offset=(-0.402, -0.250, 0.46065),
         reward_shaping=True,
         **kwargs,
@@ -32,6 +35,9 @@ class cupPnP_task3(SOARM101Lift):
         self.success_hold_steps = int(success_hold_steps)
         self.cup_max_tilt_deg = float(cup_max_tilt_deg)
         self.cup_failure_tilt_deg = float(cup_failure_tilt_deg)
+        self.gripper_clearance_m = float(gripper_clearance_m)
+        self.cup_linear_speed_limit = float(cup_linear_speed_limit)
+        self.cup_angular_speed_limit = float(cup_angular_speed_limit)
         self._success_counter = 0
 
         table_full_size = np.array(kwargs.get("table_full_size", (0.8, 0.8, 0.05)), dtype=float)
@@ -130,6 +136,29 @@ class cupPnP_task3(SOARM101Lift):
         cup_up_world = cup_rotation[:, 2]
         return bool(cup_up_world[2] < np.cos(np.deg2rad(self.cup_failure_tilt_deg)))
 
+    def _cup_is_released(self):
+        return not self._check_grasp(
+            gripper=self.robots[0].gripper,
+            object_geoms=self.cube,
+        )
+
+    def _gripper_is_clear(self):
+        distance = self._gripper_to_target(
+            gripper=self.robots[0].gripper,
+            target=self.cube.root_body,
+            target_type="body",
+            return_distance=True,
+        )
+        return bool(distance >= self.gripper_clearance_m)
+
+    def _cup_is_stable(self):
+        linear_speed = np.linalg.norm(self.sim.data.get_body_xvelp(self.cube.root_body))
+        angular_speed = np.linalg.norm(self.sim.data.get_body_xvelr(self.cube.root_body))
+        return bool(
+            linear_speed <= self.cup_linear_speed_limit
+            and angular_speed <= self.cup_angular_speed_limit
+        )
+
     @property
     def task_success(self):
         return self._success_counter >= self.success_hold_steps
@@ -149,7 +178,13 @@ class cupPnP_task3(SOARM101Lift):
             self.sim.model.geom_rgba[geom_id] = color
 
     def _check_success(self):
-        if self._cup_on_cart() and self._cup_is_upright():
+        if (
+            self._cup_on_cart()
+            and self._cup_is_upright()
+            and self._cup_is_released()
+            and self._gripper_is_clear()
+            and self._cup_is_stable()
+        ):
             self._success_counter += 1
         else:
             self._success_counter = 0
@@ -207,11 +242,26 @@ class cupPnP_task3(SOARM101Lift):
             def cup_upright(obs_cache):
                 return np.array([float(self._cup_is_upright())])
 
+            @sensor(modality=modality)
+            def cup_released(obs_cache):
+                return np.array([float(self._cup_is_released())])
+
+            @sensor(modality=modality)
+            def gripper_clear(obs_cache):
+                return np.array([float(self._gripper_is_clear())])
+
+            @sensor(modality=modality)
+            def cup_stable(obs_cache):
+                return np.array([float(self._cup_is_stable())])
+
             for observable_sensor in (
                 cart_target_pos,
                 cup_to_cart_target,
                 cup_on_cart,
                 cup_upright,
+                cup_released,
+                gripper_clear,
+                cup_stable,
             ):
                 observables[observable_sensor.__name__] = Observable(
                     name=observable_sensor.__name__,
@@ -225,6 +275,7 @@ class cupPnP_task3(SOARM101Lift):
         self._success_counter = 0
         super()._reset_internal()
         self._reset_cup_to_coffee_start()
+        self._update_target_visual(False)
 
     def _reset_cup_to_coffee_start(self):
         """Place the cup upright in the coffee-machine bay at reset."""

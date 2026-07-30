@@ -29,7 +29,7 @@ class cupPnP_task1(SOARM101Lift):
         main_table_top_height=0.865,
         cart_gap=0.01,
         robot_on_cart_offset=(-0.07, 0.10, 0.0),
-        coffee_machine_offset=(-0.16, 0.0, 0.0),
+        coffee_machine_offset=(-0.19, 0.0, 0.0),
         head_camera_robot_offset=(-0.402, -0.250, 0.46065),
         reward_shaping=True,
         **kwargs,
@@ -229,6 +229,7 @@ class cupPnP_task1(SOARM101Lift):
         self._success_counter = 0
         super()._reset_internal()
         self._reset_cup_to_table_start()
+        self._update_success_target_visual(False)
 
     def _reset_cup_to_table_start(self):
         """Place the cup on the table, outside the coffee machine, at reset."""

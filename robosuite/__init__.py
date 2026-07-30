@@ -3,6 +3,11 @@ from robosuite.environments.base import make
 # Manipulation environments
 from robosuite.environments.manipulation.lift import Lift
 from robosuite.environments.manipulation.soarm101_lift import SOARM101Lift
+from robosuite.environments.manipulation.soarm101_PnPcup import SOARM101PnPCup
+from robosuite.environments.manipulation.cup_pnp_task1 import cupPnP_task1
+from robosuite.environments.manipulation.cup_pnp_task2 import cupPnP_task2
+from robosuite.environments.manipulation.cup_pnp_task3 import cupPnP_task3
+from robosuite.environments.manipulation.cup_pnp_task5 import cupPnP_task5
 from robosuite.environments.manipulation.stack import Stack
 from robosuite.environments.manipulation.nut_assembly import NutAssembly
 from robosuite.environments.manipulation.pick_place import PickPlace
