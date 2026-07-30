@@ -164,6 +164,14 @@
     <material name="wrist_roll_pitch_so101_v2_material" rgba="1 0.82 0.12 1"/>
     <material name="wrist_roll_follower_so101_v1_material" rgba="1 0.82 0.12 1"/>
   </asset>
+  <!-- The folded scene-match init pose brings the fixed-finger collision pads within
+       ~3 mm of the shoulder's mesh-collision convex hulls (hulls of the non-convex
+       motor-holder brackets bulge past the real part), producing phantom self-contact
+       forces that corrupt tau_ext at episode start. The real arm holds this pose freely.
+       Exclude that body pair; robosuite prefixes body1/body2 on merge. -->
+  <contact>
+    <exclude body1="gripper" body2="shoulder"/>
+  </contact>
   <!-- NEW: sensors attached to wrist_ft_site -->
   <sensor>
     <force site="wrist_ft_site" name="wrist_ft_force"/>
