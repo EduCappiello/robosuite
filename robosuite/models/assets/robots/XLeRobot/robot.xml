@@ -60,10 +60,29 @@
            ground friction during base motion (the virtual planar joints, not the
            box, are the ground interface). -->
       <geom name="chassis_col" type="box" pos="0 0 0.31" size="0.175 0.225 0.29" group="0" rgba="0.3 0.3 0.35 0.0"/>
-      <!-- Visuals: base plate, frame, top plate (top surface z=0.816, arm base bottom ~0.819). -->
-      <geom name="chassis_plate_vis" type="box" pos="0 0 0.05" size="0.16 0.20 0.02" contype="0" conaffinity="0" group="1" rgba="0.25 0.25 0.28 1"/>
-      <geom name="chassis_frame_vis" type="box" pos="0 0 0.42" size="0.165 0.215 0.35" contype="0" conaffinity="0" group="1" rgba="0.45 0.47 0.50 0.35"/>
-      <geom name="chassis_top_vis" type="box" pos="0 0 0.810" size="0.175 0.225 0.006" contype="0" conaffinity="0" group="1" rgba="0.25 0.25 0.28 1"/>
+      <!-- Visuals: the 3-layer RASKOG-style cart. Layer heights are what the
+           frame tree references — layer 2 (z=0.42) is the IMU mount plane and
+           the cup-holder tray location; layer 3 (z=0.816) carries both arms.
+           MEASURE these on the physical build (Project_definition §3.3). -->
+      <geom name="tray_layer1_vis" type="box" pos="0 0 0.05" size="0.175 0.225 0.008" contype="0" conaffinity="0" group="1" rgba="0.25 0.25 0.28 1"/>
+      <geom name="tray_layer1_lip_x" type="box" pos="0 0.225 0.075" size="0.175 0.004 0.033" contype="0" conaffinity="0" group="1" rgba="0.30 0.30 0.34 1"/>
+      <geom name="tray_layer1_lip_x2" type="box" pos="0 -0.225 0.075" size="0.175 0.004 0.033" contype="0" conaffinity="0" group="1" rgba="0.30 0.30 0.34 1"/>
+      <!-- Layer 2 = IMU plane + cup-holder tray deck (slots are printed hardware,
+           not modelled: add them here when the holder design is frozen). -->
+      <geom name="tray_layer2_vis" type="box" pos="0 0 0.42" size="0.175 0.225 0.008" contype="0" conaffinity="0" group="1" rgba="0.25 0.25 0.28 1"/>
+      <geom name="tray_layer2_lip_x" type="box" pos="0 0.225 0.445" size="0.175 0.004 0.033" contype="0" conaffinity="0" group="1" rgba="0.30 0.30 0.34 1"/>
+      <geom name="tray_layer2_lip_x2" type="box" pos="0 -0.225 0.445" size="0.175 0.004 0.033" contype="0" conaffinity="0" group="1" rgba="0.30 0.30 0.34 1"/>
+      <!-- Layer 3 = arm deck (top surface z=0.816; arm bases sit at z=0.8215). -->
+      <geom name="tray_layer3_vis" type="box" pos="0 0 0.810" size="0.175 0.225 0.006" contype="0" conaffinity="0" group="1" rgba="0.25 0.25 0.28 1"/>
+      <!-- Corner posts tying the three layers together. -->
+      <geom name="post_fl_vis" type="cylinder" pos="0.163 0.213 0.43" size="0.009 0.383" contype="0" conaffinity="0" group="1" rgba="0.45 0.47 0.50 1"/>
+      <geom name="post_fr_vis" type="cylinder" pos="0.163 -0.213 0.43" size="0.009 0.383" contype="0" conaffinity="0" group="1" rgba="0.45 0.47 0.50 1"/>
+      <geom name="post_bl_vis" type="cylinder" pos="-0.163 0.213 0.43" size="0.009 0.383" contype="0" conaffinity="0" group="1" rgba="0.45 0.47 0.50 1"/>
+      <geom name="post_br_vis" type="cylinder" pos="-0.163 -0.213 0.43" size="0.009 0.383" contype="0" conaffinity="0" group="1" rgba="0.45 0.47 0.50 1"/>
+      <!-- Omni wheels (visual only — the planar joints are the ground interface). -->
+      <geom name="wheel_f_vis" type="cylinder" pos="0.13 0 0.035" size="0.035 0.012" quat="0.707107 0.707107 0 0" contype="0" conaffinity="0" group="1" rgba="0.15 0.15 0.15 1"/>
+      <geom name="wheel_bl_vis" type="cylinder" pos="-0.09 0.145 0.035" size="0.035 0.012" quat="0.612372 0.612372 0.353553 0.353553" contype="0" conaffinity="0" group="1" rgba="0.15 0.15 0.15 1"/>
+      <geom name="wheel_br_vis" type="cylinder" pos="-0.09 -0.145 0.035" size="0.035 0.012" quat="0.612372 0.612372 -0.353553 -0.353553" contype="0" conaffinity="0" group="1" rgba="0.15 0.15 0.15 1"/>
 
       <!-- ══════════════════ RIGHT ARM (first in document order) ══════════════════ -->
       <body name="right_arm_base" pos="0.1352 -0.15 0.8215" quat="1 0 0 0">
@@ -219,6 +238,7 @@
            XLEROBOT_FRAME_TREE["imu"]). -->
       <body name="imu" pos="0 0 0.42" quat="1 0 0 0">
         <inertial pos="0 0 0" mass="1e-9" diaginertia="1e-12 1e-12 1e-12"/>
+        <geom name="imu_vis" type="box" pos="0 0 0.012" size="0.013 0.019 0.004" contype="0" conaffinity="0" group="1" rgba="0.10 0.55 0.25 1"/>
         <site group="3" name="imu_site" pos="0 0 0" quat="1 0 0 0"/>
       </body>
 
