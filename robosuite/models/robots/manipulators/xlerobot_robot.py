@@ -17,6 +17,9 @@ XLEROBOT_FRAME_TREE = {
     # head_tilt_link pos is relative to head_pan_link
     "head_pan_link": {"pos": (-0.125, 0.0, 0.945), "quat": (1.0, 0.0, 0.0, 0.0)},
     "head_tilt_link": {"pos": (0.05, 0.0, 0.18), "quat": (1.0, 0.0, 0.0, 0.0)},
+    # GY-91 at the 2nd tray layer's geometric centre (z estimated — measure on
+    # the build). E-FC compensation transfers its readings to each arm base.
+    "imu": {"pos": (0.0, 0.0, 0.42), "quat": (1.0, 0.0, 0.0, 0.0)},
 }
 
 

@@ -211,6 +211,17 @@
         </body>
       </body>
 
+      <!-- IMU at the geometric centre of the 2nd tray layer (E-FC redesign): the
+           GY-91 mounts here on the physical cart; its specific force + angular rate
+           are transferred to each arm base through the frame tree and propagated
+           through each arm's dynamic model. z = 0.42 m is the middle-basket estimate
+           for the RASKOG cart — MEASURE on the physical build (keep in sync with
+           XLEROBOT_FRAME_TREE["imu"]). -->
+      <body name="imu" pos="0 0 0.42" quat="1 0 0 0">
+        <inertial pos="0 0 0" mass="1e-9" diaginertia="1e-12 1e-12 1e-12"/>
+        <site group="3" name="imu_site" pos="0 0 0" quat="1 0 0 0"/>
+      </body>
+
       <!-- ══════════════════ HEAD (pan/tilt; ranges from upstream) ══════════════════ -->
       <body name="head_pan_link" pos="-0.125 0 0.945" quat="1 0 0 0">
         <joint axis="0 0 1" name="head_pan" type="hinge" range="-1.57 1.57" class="sts3215"/>
@@ -260,6 +271,10 @@
     <exclude body1="left_gripper" body2="left_shoulder"/>
   </contact>
   <sensor>
+    <!-- Simulated GY-91: accelerometer = specific force (a - g), gyro = angular
+         rate, both in the imu_site frame — the same semantics as the real chip. -->
+    <accelerometer site="imu_site" name="imu_accel"/>
+    <gyro site="imu_site" name="imu_gyro"/>
     <force site="right_wrist_ft_site" name="right_wrist_ft_force"/>
     <torque site="right_wrist_ft_site" name="right_wrist_ft_torque"/>
     <force site="left_wrist_ft_site" name="left_wrist_ft_force"/>
