@@ -55,8 +55,11 @@
       <!-- Chassis placeholder inertial: ~cart + battery + plates. Box inertia of the
            0.35 x 0.45 x 0.78 shell at 9 kg. Tier-2 TODO: replace with CAD values. -->
       <inertial pos="0 0 0.35" mass="9.0" diaginertia="0.20 0.16 0.11"/>
-      <!-- Collision: lower column only (z 0..0.60) — arms cannot reach it. -->
-      <geom name="chassis_col" type="box" pos="0 0 0.30" size="0.175 0.225 0.30" group="0" rgba="0.3 0.3 0.35 0.0"/>
+      <!-- Collision: lower column only (z 0.02..0.60) — arms cannot reach it, and
+           the 2 cm floor clearance keeps the sliding chassis from adding phantom
+           ground friction during base motion (the virtual planar joints, not the
+           box, are the ground interface). -->
+      <geom name="chassis_col" type="box" pos="0 0 0.31" size="0.175 0.225 0.29" group="0" rgba="0.3 0.3 0.35 0.0"/>
       <!-- Visuals: base plate, frame, top plate (top surface z=0.816, arm base bottom ~0.819). -->
       <geom name="chassis_plate_vis" type="box" pos="0 0 0.05" size="0.16 0.20 0.02" contype="0" conaffinity="0" group="1" rgba="0.25 0.25 0.28 1"/>
       <geom name="chassis_frame_vis" type="box" pos="0 0 0.42" size="0.165 0.215 0.35" contype="0" conaffinity="0" group="1" rgba="0.45 0.47 0.50 0.35"/>
