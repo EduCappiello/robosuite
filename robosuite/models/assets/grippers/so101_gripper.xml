@@ -97,4 +97,15 @@
         <force  name="force_ee"  site="ft_frame"/>
         <torque name="torque_ee" site="ft_frame"/>
     </sensor>
+  <!-- At folded poses under load the moving jaw grazes the shoulder meshes'
+       convex hulls (same phantom-contact family as the arm's gripper<->shoulder
+       exclude; the real jaw never reaches the shoulder). This robot<->robot
+       contact is invisible to the contact ground truth (self-collisions are
+       skipped by design), so it silently violates the residual == -J^T w
+       identity — found via the XLeRobot per-arm grading (E09). The gripper's
+       naming prefix maps these to robot0_{arm_}moving_jaw <-> robot0_{arm_}shoulder,
+       correct for both the bimanual and the single-arm model. -->
+  <contact>
+    <exclude body1="moving_jaw" body2="shoulder"/>
+  </contact>
 </mujoco>

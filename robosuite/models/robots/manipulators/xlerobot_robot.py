@@ -31,8 +31,9 @@ class XLeRobot(ManipulatorModel):
     side/yaw velocity), which matches the real robot's base command interface
     (body-frame x.vel / y.vel / theta.vel); kiwi-drive wheel mixing stays outside
     the sim, exactly as it stays on the real host. Default composite controller
-    (default_xlerobot.json) yields a 17-dim action:
-    [right arm 5 + grip 1, left arm 5 + grip 1, head 2, base 3].
+    (default_xlerobot.json) yields a 17-dim action, composite order
+    [right arm 5, left arm 5, head 2, base 3, right grip 1, left grip 1]
+    (build actions with robot.create_action_vector to stay layout-proof).
 
     Args:
         idn (int or str): Number or some other unique identification string for

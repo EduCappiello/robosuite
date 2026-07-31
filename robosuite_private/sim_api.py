@@ -331,8 +331,9 @@ class XLeRobotSim(SOARM101Sim):
     SOARM101Sim facade with XLeRobot defaults: the 17-DoF dual-arm mobile robot
     in a plain Lift scene (coffee tasks are re-parented onto XLeRobot in M4).
 
-    Action layout with default_xlerobot.json (17,):
-        [right arm 5, right grip 1, left arm 5, left grip 1, head 2, base vel 3]
+    Action layout with default_xlerobot.json (17,), composite order:
+        [right arm 5, left arm 5, head 2, base vel 3, right grip 1, left grip 1]
+    (build actions with robot.create_action_vector to stay layout-proof).
 
     Per-arm ground truth / motor signals: pass arm="right"/"left" to
     get_ground_truth_dynamics(...) and read_motor_signals(...).
