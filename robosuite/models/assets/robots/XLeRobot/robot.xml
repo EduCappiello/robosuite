@@ -94,7 +94,7 @@
            (0.816) is exactly the mounting plate, which is what topbase1 models. That
            same +0.041 shift is applied to the whole mast/head assembly below.
            Geom poses are upstream's baked visual origins — see the <asset> note. -->
-      <geom name="cart_body_vis" type="mesh" mesh="raskogbody" pos="-0.01668 0.502 0.895" euler="1.5708 0 0" contype="0" conaffinity="0" group="1" rgba="0.149 0.251 0.502 1"/>
+      <geom name="cart_body_vis" type="mesh" mesh="raskogbody" pos="-0.01668 0.502 0.895" euler="1.5708 0 0" contype="0" conaffinity="0" group="1" rgba="0.93 0.93 0.94 1"/>
       <geom name="cart_frame_vis" type="mesh" mesh="raskogwheel1" pos="-0.01668 0.502 0.895" euler="1.5708 0 0" contype="0" conaffinity="0" group="1" rgba="0.50 0.50 0.50 1"/>
       <geom name="cart_caster_vis" type="mesh" mesh="raskogwheel2" pos="-0.01668 0.502 0.895" euler="1.5708 0 0" contype="0" conaffinity="0" group="1" rgba="0.10 0.10 0.10 1"/>
       <!-- Arm mounting plate + head mast (topbase1 spans z 0.737..1.174, straddling

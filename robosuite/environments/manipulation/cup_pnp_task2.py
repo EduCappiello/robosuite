@@ -2,12 +2,20 @@ import xml.etree.ElementTree as ET
 
 import numpy as np
 
-from robosuite.environments.manipulation.soarm101_lift import SOARM101Lift
+from robosuite.environments.manipulation.soarm101_lift import (
+    SOARM101Lift,
+    robots_bring_their_own_base,
+)
 from robosuite.utils.observables import Observable, sensor
 
 
 BREW_BUTTON = "brew_button"
+# Body the stylus bolts to. The single desk arm has one gripper; XLeRobot has two,
+# so candidates are tried in order. The RIGHT hand is the default for two-armed
+# robots: the brew button sits at y=-0.11, next to the right arm base at y=-0.137,
+# and it is the nearer of the two (0.395 m vs 0.465 m).
 TOUCH_STYLUS_PARENT_BODY = "robot0_gripper"
+TOUCH_STYLUS_PARENT_CANDIDATES = ("robot0_gripper", "robot0_right_gripper", "robot0_left_gripper")
 TOUCH_STYLUS_SHAFT_FROMTO = (
     -0.039,
     -0.0002,
@@ -28,15 +36,26 @@ BUTTON_NAMES = (
 )
 
 
-def add_task2_touch_stylus(worldbody: ET.Element) -> ET.Element:
-    """Rigidly attach a collision-enabled stylus to the fixed right jaw."""
+def add_task2_touch_stylus(worldbody: ET.Element, parent_body: str | None = None) -> ET.Element:
+    """Rigidly attach a collision-enabled stylus to the fixed jaw.
+
+    The stylus offsets are expressed in the gripper's own frame, and XLeRobot's arm
+    chains are verbatim copies of the SO-101, so the same numbers hold on either hand.
+    """
     existing = worldbody.find(".//body[@name='task2_touch_stylus']")
     if existing is not None:
         return existing
 
-    parent = worldbody.find(f".//body[@name='{TOUCH_STYLUS_PARENT_BODY}']")
+    candidates = (parent_body,) if parent_body else TOUCH_STYLUS_PARENT_CANDIDATES
+    parent = name = None
+    for name in candidates:
+        parent = worldbody.find(f".//body[@name='{name}']")
+        if parent is not None:
+            break
     if parent is None:
-        raise ValueError(f"Missing task2 stylus parent body: {TOUCH_STYLUS_PARENT_BODY}")
+        raise ValueError(
+            f"Missing task2 stylus parent body; tried {list(candidates)}"
+        )
 
     stylus = ET.SubElement(parent, "body", {"name": "task2_touch_stylus"})
     shaft_fromto = " ".join(str(value) for value in TOUCH_STYLUS_SHAFT_FROMTO)
@@ -198,10 +217,20 @@ class cupPnP_task2(SOARM101Lift):
         robot_pedestal_full_size=(0.16, 0.12, 0.05),
         coffee_machine_offset=(-0.19, 0.0, 0.0),
         head_camera_robot_offset=(-0.402, -0.250, 0.46065),
+        stylus_arm="right",
         reward_shaping=True,
         control_freq=20,
         **kwargs,
     ):
+        # Which hand carries the button stylus. Ignored for the single desk arm
+        # (it has one gripper); for XLeRobot the right hand is nearer the brew
+        # button. Set "left" to press with the other hand.
+        self.stylus_arm = str(stylus_arm)
+        self.stylus_parent_body = (
+            f"robot0_{self.stylus_arm}_gripper"
+            if robots_bring_their_own_base(kwargs.get("robots"))
+            else None
+        )
         self.coffee_target_half_size = np.array(coffee_target_half_size, dtype=float)
         self.cup_start_yaw_deg = float(cup_start_yaw_deg)
         self.button_contact_threshold = float(button_contact_threshold)
@@ -253,7 +282,7 @@ class cupPnP_task2(SOARM101Lift):
             self.robot_base_pos,
             self.robot_pedestal_full_size,
         )
-        add_task2_touch_stylus(self.model.worldbody)
+        add_task2_touch_stylus(self.model.worldbody, self.stylus_parent_body)
 
         head_camera_pos = self.robot_base_pos + self.head_camera_robot_offset
         for camera_name in ("top", "rear"):

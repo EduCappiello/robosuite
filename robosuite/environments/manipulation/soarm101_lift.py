@@ -12,6 +12,30 @@ from robosuite.utils.observables import Observable, sensor
 from robosuite.utils.placement_samplers import UniformRandomSampler
 from robosuite.utils.transform_utils import convert_quat
 
+# --- self-supporting (mobile) robots -------------------------------------------
+# XLeRobot arrives on its own IKEA RASKOG cart, so it REPLACES the fixed support
+# table these tasks build for the desk arm. Keep in sync with XLEROBOT_FRAME_TREE
+# in robosuite/models/robots/manipulators/xlerobot_robot.py.
+XLEROBOT_CART_FOOTPRINT = (0.392, 0.467)   # chassis x, y from the RASKOG mesh
+XLEROBOT_ARM_DECK_Z = 0.8215               # arm-base height on the mounting pads
+XLEROBOT_ARM_FORWARD_X = -0.0911           # arms sit BEHIND the chassis centre
+SELF_SUPPORT_TABLE_GAP = 0.01              # chassis-to-table clearance
+
+
+def robots_bring_their_own_base(robots) -> bool:
+    """True if any requested robot is mobile, i.e. it stands on the floor on its own
+    chassis and must NOT be perched on the fixed support table."""
+    from robosuite.robots import ROBOT_CLASS_MAPPING
+    from robosuite.robots.mobile_robot import MobileRobot
+
+    if robots is None:
+        return False
+    names = [robots] if isinstance(robots, str) else list(robots)
+    return any(
+        (cls := ROBOT_CLASS_MAPPING.get(n)) is not None and issubclass(cls, MobileRobot)
+        for n in names
+    )
+
 
 class SOARM101Lift(Lift):
     """
@@ -99,6 +123,13 @@ class SOARM101Lift(Lift):
         self.robot_support_table_yaw = float(robot_support_table_yaw)
         if (self.robot_support_table_full_size is None) != (self.robot_support_table_offset is None):
             raise ValueError("robot support table size and offset must be provided together")
+        # A mobile robot needs its real mobile base: this class hardcodes a NullMount,
+        # which is right for a desk arm but leaves a mobile robot with a fixed_mount
+        # that has no "center" site, so robot0_base_pos has nothing to read and the
+        # env dies during observable setup.
+        self.robot_is_self_supporting = robots_bring_their_own_base(robots)
+        if self.robot_is_self_supporting and base_types == "NullMount":
+            base_types = "default"
         super().__init__(
             robots=robots,
             env_configuration=env_configuration,
@@ -151,6 +182,8 @@ class SOARM101Lift(Lift):
                 ]
             )
             xpos = self.robot_support_table_offset + rot_z @ self.robot_support_robot_offset
+        if self.robot_is_self_supporting:
+            xpos = self._self_supporting_base_xpos(xpos)
         self.robots[0].robot_model.set_base_xpos(xpos)
         if self.robot_support_table_offset is not None:
             self.robots[0].robot_model.set_base_ori(
@@ -364,8 +397,41 @@ class SOARM101Lift(Lift):
             self.sim.model.body_mass[self.cube_body_id] *= ratio
             self.sim.model.body_inertia[self.cube_body_id] *= ratio
 
+    def _self_supporting_base_xpos(self, desk_arm_xpos):
+        """Where to park a robot that arrives on its own chassis (XLeRobot).
+
+        `desk_arm_xpos` is where the single desk arm's BASE would have gone. A mobile
+        robot must be placed so its ARM BASES land there instead — its arms are offset
+        from the chassis centre (XLeRobot's sit 91 mm BEHIND it, on the top plate's
+        mounting pads), so matching chassis-to-chassis would put the arms in a
+        completely different place than the task was designed around.
+
+        The result is then clamped so the chassis cannot intersect the main table:
+        the arms bolt to the rear of the cart, so honouring the desk arm's x exactly
+        would drive the cart through the table edge. When clamped, the arms end up
+        slightly further back than the desk arm was, which costs a little reach —
+        that is a real consequence of the mounting, not a bug.
+        """
+        yaw = self.robot_support_table_yaw
+        forward = np.array([np.cos(yaw), np.sin(yaw), 0.0])
+        cart_centre = np.asarray(desk_arm_xpos, dtype=float) - XLEROBOT_ARM_FORWARD_X * forward
+
+        # Keep the chassis clear of the main table along the approach axis.
+        table_near = -self.table_full_size[0] / 2.0
+        max_centre_x = table_near - XLEROBOT_CART_FOOTPRINT[0] / 2.0 - SELF_SUPPORT_TABLE_GAP
+        cart_centre[0] = min(cart_centre[0], max_centre_x)
+        # Two arms straddle the centreline, so the desk arm's lateral offset does not
+        # apply; and the base frame origin is on the floor.
+        cart_centre[1] = 0.0
+        cart_centre[2] = 0.0
+        return cart_centre
+
     def _add_robot_support_table(self, mujoco_arena):
         """Add the optional fixed cart-sized table used to support the robot."""
+        # A self-supporting robot brings its own chassis; building the stand-in table
+        # here would bury that chassis inside a second collision box.
+        if self.robot_is_self_supporting:
+            return
         if self.robot_support_table_offset is None:
             return
 
