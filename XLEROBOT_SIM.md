@@ -59,18 +59,59 @@ conda run -n lerobot python -m pytest \
 
 ## 2. Look at it (the cart / tray)
 
-The cart is a **3-layer RÅSKOG-style stand-in** (primitive geometry, not CAD):
+The cart is the **real IKEA RÅSKOG mesh** from upstream CAD (see below); the
+heights the frame tree and collision shell reference are:
 
 | element | height (top surface) | notes |
 |---|---|---|
-| layer 1 (bottom basket) | z = 0.058 m | battery / compute |
+| layer 1 (bottom basket) | z ≈ 0.06 m | battery / compute |
 | **layer 2 (tray deck)** | **z = 0.428 m** | **GY-91 IMU mounts here (green marker); cup-holder tray goes here** |
-| layer 3 (arm deck) | z = 0.816 m | both arm bases bolt here |
-| footprint | 0.35 × 0.45 m | corner posts + 3 omni wheels (visual only) |
+| cart rim (mesh top) | z = 0.775 m | true RÅSKOG height |
+| layer 3 (arm deck) | z = 0.816 m | mounting plate; both arm bases bolt here |
+| footprint | 0.392 × 0.467 m | from the mesh; casters + 3 omni wheels (visual only) |
 
 The **cup-holder tray with slots 1–3 is not modelled yet** — it is printed
 hardware whose design isn't frozen. Add it as geoms on layer 2 (`tray_layer2_*`
 in `robot.xml`) once the holder exists.
+
+**The cart and mast are the real upstream CAD.** They come from
+Vector-Wangel/XLeRobot's URDF release — `simulation/xlerobot_urdf.zip`,
+`meshes/xlerobot/assets/` — vendored into `assets/` next to `robot.xml`:
+
+| mesh | what | tris |
+|---|---|---|
+| `raskogbody` + `raskogwheel1/2` | the actual IKEA RÅSKOG trolley + casters | 16.7k |
+| `topbase1` / `topbase2` | arm mounting plate + head mast, servo | 5.9k |
+| `tophead1/4/5/6` | pan yoke, tilt gimbal, camera bar | 12.4k |
+
+Two traps if you edit them. **The vertices are baked in absolute mm at assembly
+pose**, so each geom carries upstream's own visual origin — the numbers look
+arbitrary but are the CAD assembly; don't "tidy" them. And the `raskog*` meshes
+are **Y-up** (`euler="1.5708 0 0"`) with upstream's anisotropic `0.9/1.0/0.9`
+scale.
+
+Note the earlier `simulation/mujoco/xlerobot.xml` is a red herring: *it* draws the
+cart as one translucent box (`size="0.2 0.2 0.38"`), which is why the cart looked
+wrong here for so long. The geometry only exists in the URDF zip.
+
+**Heights.** The RÅSKOG is genuinely 0.78 m, so it is **not** stretched to our
+deck: its rim lands at z = 0.775 and the 41 mm up to the guarded arm deck (0.816)
+is the mounting plate, which is exactly what `topbase1` models. The whole
+mast/head assembly is shifted by that same +0.041 m. Only the arms are unaffected
+— they keep the calibrated SO-101 meshes.
+
+The user's `ikea-raskog-pink-utility-trolley.zip` (IKEA's own textured GLB, 24.5k
+tris) is kept **untracked** as an alternative: it is pink, needs a GLB→OBJ
+conversion step, and covers only the cart — the mast would still come from
+upstream.
+
+**Cart collision.** The cart is a hollow *shell*, not a solid block: lower basket
+box (z 0.02–0.41) + a plate at each upper deck + the four corner posts. This
+matters — the collider used to stop at z = 0.60, so the arm deck at z = 0.816 had
+no collider at all and the whole cart drove straight through 0.8 m tabletops.
+Basket interiors stay open so objects can rest **on** a deck. Contacts with the
+arms are filtered by MuJoCo's parent-child rule, so per-arm
+`tau_ext_contact` is still exactly 0 in free space (guarded by the GT tests).
 
 Product shot (any angle, no scene needed):
 
@@ -112,18 +153,32 @@ origin on the floor under the cart centre. Source: upstream Vector-Wangel
 XLeRobot CAD @ `3d14695e`, remapped. Registry: `XLEROBOT_FRAME_TREE` in
 `robosuite/models/robots/manipulators/xlerobot_robot.py` (guarded by a test).
 
-| frame | x [m] | y [m] | z [m] |
-|---|---|---|---|
-| **right arm base** | +0.1352 | **−0.150** | 0.8215 |
-| **left arm base** | +0.1352 | **+0.150** | 0.8215 |
-| head pan axis | −0.125 | 0 | 0.945 |
-| head tilt / camera | −0.075 | 0 | 1.125 |
-| IMU (2nd tray layer) | 0 | 0 | 0.420 |
+| frame | x [m] | y [m] | z [m] | source |
+|---|---|---|---|---|
+| **right arm base** | −0.0911 | **−0.137** | 0.8215 | mounting-pad circle fit |
+| **left arm base** | −0.0911 | **+0.137** | 0.8215 | mounting-pad circle fit |
+| head pan axis | −0.103 | 0 | 1.094 | upstream URDF assembly |
+| head tilt | −0.102 | +0.002 | 1.192 | upstream URDF assembly |
+| head camera | ≈ −0.110 | 0 | ≈ 1.219 | on the `tophead6` bar |
+| IMU (2nd tray layer) | 0 | 0 | 0.420 | estimate — measure |
 
-**→ The two arm bases are 300 mm apart (0.30 m), purely lateral.** Both sit
-+135.2 mm forward of the cart centre and 821.5 mm above the floor, i.e. **5.5 mm
-above the arm-deck surface** (mounting-plate thickness), both facing **straight
-forward with zero yaw** (no toe-in/toe-out).
+The **head frames changed** when the mast meshes went in: they are now upstream's
+own CAD frames (+0.041 m, the mounting-plate shift), replacing an earlier estimate
+that put the pan axis at z = 0.945. The head carries no force estimation, so no
+dynamics result moves with it — but `head_cam` now sits ~9 cm higher, which
+changes the framing of any previously recorded head-camera data.
+
+**→ The two arm bases are 274 mm apart (0.274 m), purely lateral.** Both sit
+**91.1 mm BEHIND** the cart centre — they bolt to the two circular pads on the top
+plate (`topbase1`), which straddle the head mast at the rear of the cart, not out
+over the front tray. Height 821.5 mm puts the SO-101 base mesh flat on the pad
+surface (z = 0.819). Both face **straight forward with zero yaw** (no toe-in/out).
+
+These x/y came from fitting circles to the plate mesh's upper surface (centres
+(−0.0911, ±0.137), radius 56 mm, sub-mm residual) and are corroborated by
+upstream's own URDF arm mount at x = −0.09. They replaced an earlier estimate of
+(+0.1352, ±0.150) that floated the arms 23 cm forward of the plate, off the
+mounting hardware entirely — visible immediately once the real cart mesh went in.
 
 Two caveats worth stating plainly:
 
@@ -156,16 +211,111 @@ x.vel   y.vel   theta.vel
 Units mirror the real bus: arm/head positions in **degrees**, grippers
 **0–100 %**, base `x/y` in **m/s** and `theta` in **deg/s**.
 
+**Ports on the sim rig.** With no follower buses plugged in, the two leader
+arms enumerate as the *first* two devices. On this machine:
+
+| arm | port | USB serial (`ID_SERIAL_SHORT`) |
+|---|---|---|
+| **left leader** | `/dev/ttyACM1` | `5AAF218741` |
+| **right leader** | `/dev/ttyACM0` | `5AE6054679` |
+
+(The `ttyACM2`/`ttyACM3` defaults baked into `XLerobotLeaderKeyboardConfig` are
+for the **real** rig, where the two follower buses occupy `ACM0`/`ACM1`. Always
+pass the ports explicitly — `/dev/ttyACM*` numbering re-enumerates on replug.)
+
+Preflight — both ports free, each holding one 6-motor SO-101:
+
+```bash
+fuser -v /dev/ttyACM0 /dev/ttyACM1        # expect: no output
+conda run -n lerobot python -c "
+from lerobot.motors.feetech import FeetechMotorsBus
+for p in ('/dev/ttyACM0','/dev/ttyACM1'): print(p, FeetechMotorsBus.scan_port(p))"
+# expect each: {1000000: [1, 2, 3, 4, 5, 6]}
+```
+
 ```bash
 export PYTHONPATH=~/Documents/dev/lerobot-1-coffee/src:~/Documents/dev/robosuite-xlerobot
 
 lerobot-teleoperate \
   --robot.type=xlerobot_sim \
   --robot.has_renderer=true \
+  --robot.control_freq=60 \
+  --robot.camera_names='[robot0_head_cam]' \
   --teleop.type=xlerobot_leader_keyboard \
-  --teleop.left_arm_port=/dev/ttyACM2 \
-  --teleop.right_arm_port=/dev/ttyACM3
+  --teleop.left_arm_port=/dev/ttyACM1 \
+  --teleop.right_arm_port=/dev/ttyACM0 \
+  --teleop.id=xlerobot_leaders
 ```
+
+**The viewer must not eat your teleop keys.** The native MuJoCo viewer binds a
+single-letter shortcut to *all twelve* teleop keys — `w`=wireframe, `s`=shadow,
+`a`=auto-connect, `d`=static-body, `q`=camera, `e`=equality, `n`=island,
+`m`=centre-of-mass, `i`=inertia, `j`=joint, `k`=skybox, `l`=additive (they come
+from `mjVISSTRING` / `mjRNDSTRING`). Those live in the viewer's internal
+`mjvScene`/`mjvOption` and **cannot be unbound from Python**. So the follower
+defaults to `viewer_backend="opencv"`: robosuite's `OpenCVViewer` draws into a
+cv2 window whose `waitKey` swallows keypresses without acting on them, and it
+tiles several cameras side by side. Set `--robot.viewer_backend=mjviewer` only
+when you want mouse orbit and are *not* driving from the keyboard.
+
+| flag | default | what it does |
+|---|---|---|
+| `--robot.viewer_backend` | `opencv` | `opencv` (keys safe, fixed cams) or `mjviewer` (orbit, steals keys) |
+| `--robot.render_camera` | `[agentview, robot0_head_cam]` | camera tiles in the viewer window |
+| `--robot.viewer_fps` | `20` | display refresh cap, decoupled from `control_freq` |
+| `--robot.viewer_height/width` | `360` / `480` | per-tile display size |
+| `--robot.camera_names` | `[]` | cameras recorded **into the observation** |
+
+The only on-robot camera is `robot0_head_cam`, aimed by the head servos. **There
+are deliberately no wrist cameras** — the real build has none, and a sim-only
+camera would produce observations no policy could ever get on hardware. (Upstream
+ships `XLeRobot_camera1/2` meshes; they were tried here and removed.) Scene
+cameras: `frontview`, `birdview`, `agentview`, `sideview`. Any of them can go in
+`camera_names` (into the observation dict, so `lerobot-record` captures them) or
+`render_camera` (just displayed).
+
+**Placing `head_cam` is fiddly** — the lens must clear the `tophead6` bar, whose
+front face is at x = +0.0326 in the tilt frame. Sitting it flush at x = 0.008 put
+it *inside* the `tophead5` gimbal (x −0.012…+0.013) and every frame rendered black.
+It now sits at x = 0.036. If head frames ever move again, re-check with a raycast
+rather than by eye: `mujoco.mj_ray` from `cam_xpos` along `-cam_xmat[:,2]` should
+report the wall/table metres away, not a `robot0_head_*` geom at ~0.0001 m.
+
+`viewer_fps` matters: `cv2.imshow` on this box costs ~10–25 ms per draw (Qt
+backend), far more than a physics step, so drawing every control step would peg
+teleop at single-digit Hz. Throttling the *display* leaves the control loop free.
+
+`--teleop.id` names the calibration profile: the two leaders are stored as
+`~/.cache/huggingface/lerobot/calibration/teleoperators/so_leader/xlerobot_leaders_arms_{left,right}.json`
+(same id the real-rig recording script uses, so one calibration serves both).
+If those files are absent the first `connect()` runs the interactive
+range-of-motion calibration per arm — move each joint through its full travel,
+then press Enter.
+
+**⚠ CLI registration gotcha (recurs on every upstream lerobot merge).** If you
+get `--robot.type: invalid choice: 'xlerobot_sim'`, nothing is wrong with the
+sim — draccus only offers a `--robot.type` / `--teleop.type` whose config module
+has actually been *imported*, and each CLI script carries its own hardcoded
+import manifest. `lerobot_record.py` lists `xlerobot` + `xlerobot_leader_keyboard`;
+`lerobot_teleoperate.py` originally listed neither, so recording worked while
+teleop was unreachable. Fixed in `lerobot/scripts/lerobot_teleoperate.py` by
+adding `xlerobot_sim` (guarded, next to `robosuite_sim` — both pull robosuite)
+and `xlerobot_leader_keyboard` to the two import blocks. Re-check after any
+upstream rebase:
+
+```bash
+conda run -n lerobot python -c "
+from lerobot.scripts import lerobot_teleoperate
+from lerobot.robots import RobotConfig; from lerobot.teleoperators import TeleoperatorConfig
+assert 'xlerobot_sim' in RobotConfig.get_known_choices()
+assert 'xlerobot_leader_keyboard' in TeleoperatorConfig.get_known_choices()
+print('CLI registration OK')"
+```
+
+**Percent signs in config comments.** draccus turns field comments into argparse
+help, which is `%`-expanded — a bare `%` makes `--help` crash with a
+`TypeError`. Write `%%` in config field comments (see the note at the top of
+`teleoperators/so_leader/config_so_leader.py`).
 
 Keyboard (same bindings as the real rig, from the teleop config):
 
@@ -180,6 +330,26 @@ Keyboard (same bindings as the real rig, from the teleop config):
 
 Recording works the same way (`lerobot-record` with the same flags) because the
 observation dict carries the identical keys.
+
+**Step-rate fix (was ~12 Hz).** robosuite's controller probed `mj_fullM`'s
+signature with `try/except TypeError` on *every* controller update. On mujoco 3.9
+the first signature always fails, and pybind11 builds the error message by
+`repr()`-ing the whole mass matrix — milliseconds per update, ~99% of the step
+budget. Physics itself was never the problem (`mj_step` is 0.033 ms; 17 substeps
+= 0.56 ms). The signature is now resolved once and cached
+(`robosuite/controllers/parts/controller.py`), verified bit-identical:
+
+| | before | after |
+|---|---|---|
+| `control_freq=30` | 76.5 ms/step (13 Hz) | **7.4 ms/step (136 Hz)** |
+| `control_freq=60` | 36.2 ms/step (28 Hz) | **3.9 ms/step (257 Hz)** |
+
+Both rates now run far inside budget (33.3 ms and 16.7 ms). With the on-screen
+viewer at its default 20 fps cap, end-to-end teleop measures ~67 Hz at
+`control_freq=30` and ~90–106 Hz at 60. Note raising `control_freq` alone never
+fixed this: it shortens each step but needs proportionally more of them, so
+real-time factor was unchanged — that inverse scaling is what identified the
+per-update overhead as the culprit.
 
 **Sim-specific base behaviour, measured not assumed:**
 - Command → motion is **1:1**: `x.vel = 0.2` gives 0.200 m/s, `theta.vel = 30`
@@ -287,5 +457,201 @@ PYTHONPATH=$P:$S conda run -n lerobot python $S/diag_load_residual.py
   (convex-hull phantoms). `shoulder↔wrist` is a REAL pair and stays collidable
   — grading holds use a raised pose to clear it.
 - The cup-holder tray (slots 1–3) is not modelled yet (§2).
-- Task envs (`cupPnP_task1/2/3/5`) still use the single desk arm — re-parenting
-  them onto XLeRobot is M4 (planned with Patricia; journal E10).
+- `cupPnP_task1` now accepts XLeRobot (see §8). `cupPnP_task2/3/5` still use the
+  single desk arm — re-parenting those is the rest of M4 (journal E10).
+
+---
+
+## 8. Task 1 (`cupPnP_task1`) on XLeRobot
+
+The task was built around the single desk arm bolted to a support table beside
+the main table. XLeRobot arrives on its own RÅSKOG cart, so that support table is
+**not built at all** — the robot is parked on the floor where it used to stand:
+
+```bash
+cd ~/Documents/dev/robosuite-xlerobot
+conda run -n lerobot python -c "
+import numpy as np, robosuite as suite
+env = suite.make('cupPnP_task1', robots=['XLeRobot'], has_renderer=True,
+                 has_offscreen_renderer=False, use_camera_obs=False,
+                 ignore_done=True, control_freq=30)
+env.reset()
+for _ in range(3000):
+    env.step(np.zeros(env.action_spec[0].shape)); env.render()
+env.close()"
+```
+
+Two things the env now does automatically when the requested robot is mobile
+(`_robots_bring_their_own_base`), and why:
+
+1. **`base_types` switches to the real mobile base.** `SOARM101Lift` hardcodes
+   `base_types="NullMount"`, which is right for a desk arm but leaves a mobile
+   robot with a `fixed_mount0` that has no `center` site — the env dies at
+   `ValueError: Current sensor for observable robot0_base_pos is invalid`.
+2. **It parks by ARM BASE, not by chassis — then clamps to the table.** Matching
+   chassis-to-chassis puts the arms in the wrong place entirely, so the cart is
+   positioned from the arm bases. But the arms bolt to the pads at the *rear* of
+   the cart (x = −0.0911), so hitting the desk arm's x = −0.655 exactly would
+   drive the chassis 3 cm past the table edge. The standoff is therefore clamped:
+   cart centre **x = −0.606** (front edge −0.410 vs table edge −0.400, 1 cm gap),
+   putting the arm bases at **x = −0.697**. Verified: **0 robot-scene contacts**
+   at reset and while holding.
+
+**Reach is tight, and that is physical, not a bug.** The arms sit behind their own
+cart, so they must reach over its top tray before touching the table. Distance from
+the left arm base to the cup start is **0.350 m** — right at the SO-101 limit; the
+right arm is 0.493 m away, out of reach. Add the 0.865 m tabletop against arm bases
+at 0.8215 and the working volume is marginal. Moving the cup/machine toward the near
+edge (or giving the task a base-motion phase) is a task-design decision, not a
+mounting one, so it is deliberately left alone here.
+
+The desk arm is untouched — `robots=['SOARM101']` still builds its support table
+and puts the base at (−0.655, 0.10, 0.77) exactly as before.
+
+### Teleoperating task 1
+
+The sim follower takes any robosuite env by name, so the leader arms drive the
+task scene instead of `Lift` — same 17 keys, nothing else changes:
+
+```bash
+export PYTHONPATH=~/Documents/dev/lerobot-1-coffee/src:~/Documents/dev/robosuite-xlerobot
+
+lerobot-teleoperate \
+  --robot.type=xlerobot_sim \
+  --robot.env=cupPnP_task1 \
+  --robot.has_renderer=true \
+  --robot.control_freq=60 \
+  --robot.render_camera='[sideview, robot0_head_cam]' \
+  --robot.camera_names='[robot0_head_cam]' \
+  --teleop.type=xlerobot_leader_keyboard \
+  --teleop.left_arm_port=/dev/ttyACM1 \
+  --teleop.right_arm_port=/dev/ttyACM0 \
+  --teleop.id=xlerobot_leaders
+```
+
+Two viewer tiles: **`sideview`** (whole scene — cart, both arms, head, table,
+machine, cup, target) and **`robot0_head_cam`** (what the head is actually looking
+at). `sideview` is a *fixed world* camera, so if you drive far the cart leaves the
+frame — swap it for `birdview` (top-down, keeps everything in view while driving)
+if that bothers you. Avoid `agentview`: it looks at the table from the far side and
+never shows the robot. Measured **121 Hz** at `control_freq=60`, so there is ample
+headroom. Swap `lerobot-teleoperate` for `lerobot-record` with the same flags to
+capture; the head camera in `camera_names` lands in the dataset.
+
+Both the cart and the head are live under the standard bindings — `w`/`a`/`s`/`d`
+drive, `q`/`e` rotate, `n`/`m` change speed, `i`/`k` tilt and `j`/`l` pan the head.
+Verified: 0.2 m/s commanded gives 0.37 m in 2 s, and the head reaches commanded
+angles to within ~1 deg.
+
+**Head aiming was broken until now** and is worth knowing about if you see it
+resurface. The head actuators were `<position>` servos while every arm actuator is
+`<motor>`. robosuite's `JOINT_POSITION` controller writes a *torque* into `ctrl`,
+and a position actuator reads that number as an *angle setpoint* — so the head
+quietly settled at ~0.72x every commanded angle (a 40 deg command reached 28.8
+deg). Both head actuators are now `<motor>`, matching the arms, and the joint
+ranges still bound the travel.
+
+---
+
+## 9. Dataset parity with the real robot
+
+The sim's recording schema is matched, channel for channel, against
+[`IntelligentDecisionLab/xlerobot-coffee-real`](https://huggingface.co/datasets/IntelligentDecisionLab/xlerobot-coffee-real)
+(`room-128/t1_place_cup/meta/info.json`). Verified programmatically:
+
+| | real | sim | status |
+|---|---|---|---|
+| `action` | 17 | 17 | same names, **same order** |
+| `observation.state` (telemetry on) | 84 | 84 | same names, **same order** |
+| `observation.images.head` | 480×640×3 | 480×640×3 | ✅ |
+| `observation.images.head_depth` | 480×640×1 | 480×640×1 | ✅ uint16 mm |
+| fps | 30 | `control_freq=30` | ✅ |
+
+**`record_motor_telemetry` mirrors `XLerobotConfig` exactly, default and all
+(`False`).** Off, both sides emit 17 state channels; on, both emit 84. One flag,
+same name, same default on real and sim — so the two can never silently diverge.
+**Set it on both when recording.**
+
+```bash
+--robot.record_motor_telemetry=true --robot.camera_names='[robot0_head_cam]'
+```
+
+Three things are worth knowing about how the last channels are filled, because
+they are *not* free simulation:
+
+- **Wheel telemetry is derived, not simulated.** The base is three virtual planar
+  joints, so `base_*_wheel.vel_hw` is recovered by running the real driver's own
+  kiwi mixing (wheels at 240/0/120° minus 90°, r = 0.05 m, base radius 0.125 m) on
+  the commanded body velocity. `pos`, `current_raw`, `load_raw` have no sim
+  counterpart and are **0**.
+- **Head `current_raw`/`load_raw`/`vel_hw` are 0** — the head is not force-estimated.
+  Arm telemetry is real, from `read_motor_signals`.
+- **Un-simulable IMU channels carry the real dataset's measured means**, not zeros:
+  `mpu_temp` 28.19, `pressure` 1011.91, `bmp_temp` 29.75, `altitude` 11.18. Emitting
+  zeros would inject a large synthetic distribution shift. `mag_x/y/z` are **0**,
+  which is exactly right — the real recordings show the magnetometer is never read.
+
+**IMU sign convention.** The real GY-91 reports `accel_z ≈ −10.39` at rest (board
+z points down); MuJoCo's accelerometer reports **+9.81**. `imu_axis_signs`
+defaults to `(1, 1, −1)` to match the recorded data. The real data also shows a
+small mounting bias (`accel_x ≈ −0.53`, `accel_y ≈ +0.54`) that is **not** modelled.
+Verify the sign against the physical board before trusting IMU-driven work.
+
+Depth is validated against ground truth, not eyeballed: a raycast down the camera
+axis and the centre depth pixel agree to **0.5 mm** (0.3435 m vs 0.3430 m).
+
+Re-run the check any time with:
+
+```bash
+PYTHONPATH=~/Documents/dev/lerobot-1-coffee/src:~/Documents/dev/robosuite-xlerobot \
+conda run -n lerobot python -c "
+import json,pathlib
+from huggingface_hub import hf_hub_download
+from lerobot.robots.utils import make_robot_from_config
+from lerobot.robots.xlerobot_sim import XLerobotSimConfig
+t=(pathlib.Path.home()/'.cache/huggingface/token').read_text().strip()
+info=json.loads(pathlib.Path(hf_hub_download('IntelligentDecisionLab/xlerobot-coffee-real',
+    'room-128/t1_place_cup/meta/info.json',repo_type='dataset',token=t)).read_text())
+real=info['features']['observation.state']['names']
+r=make_robot_from_config(XLerobotSimConfig(record_motor_telemetry=True,camera_names=['robot0_head_cam']))
+sim=[k for k in r.observation_features if k not in r._cameras_ft]
+print('same order:', real==sim, '| cameras:', list(r._cameras_ft))"
+```
+
+---
+
+## 10. Room 128 (the real recording room)
+
+`Room128Arena` is the classroom the real dataset was recorded in — every episode
+in the HF dataset lives under `room-128/`. Geometry is a **1:1 copy** of
+`robosuite/environments/Room_128/classroom128_v2.usd`: that USD is Z-up in metres
+(the same conventions as MuJoCo) and built entirely from `Cube` prims, so it needs
+no mesh conversion at all. Inner floor **3.665 × 4.935 m**, walls 2.8 m, plus
+`door`, `cabinet`, `storage_cabinet`, `desk`, `desk2`, `pillar1`, `pillar2`.
+
+```python
+from robosuite.models.arenas import Room128Arena
+```
+
+Two deliberate differences from robosuite's stock arenas: the room is **re-centred
+on the origin** (the USD keeps its origin in a corner, while the tasks build their
+furniture around 0,0), and the walls and furniture **collide** — stock arena walls
+are visual-only, but this room exists so the cart can be driven around obstacles.
+
+The XML is generated, not hand-written. Regenerate after any USD change with
+`robosuite/scripts/usd_to_room128_arena.py` (needs `usd-core`, which is *not* a
+project dependency — use a throwaway venv).
+
+**Task 4 is why this room exists.** Mapping the real dataset onto the sim tasks:
+
+| real dataset | sim env |
+|---|---|
+| `t1_place_cup` | `cupPnP_task1` |
+| `t2_push_button` | `cupPnP_task2` |
+| `t3_cup_to_tray` | `cupPnP_task3` |
+| **`t4_navigate`** | **not built yet — needs this arena** |
+| `t5_tray_to_table` | `cupPnP_task5` |
+
+Patricia's set has no task 4 because it is a *navigation* task: it cannot be
+expressed on a tabletop arena. `Room128Arena` is the missing piece, and it is the
+next thing to build.

@@ -5,6 +5,30 @@ import numpy as np
 from robosuite.environments.manipulation.soarm101_lift import SOARM101Lift
 from robosuite.utils.observables import Observable, sensor
 
+# Footprint (x, y) of the XLeRobot RASKOG cart and the height of its arm deck.
+# Used to park a self-supporting robot exactly where the support table would sit.
+XLEROBOT_CART_FOOTPRINT = (0.392, 0.467)
+XLEROBOT_ARM_DECK_Z = 0.8215
+# Arm bases sit on the top plate's mounting pads, BEHIND the cart centre (negative x).
+# Keep in sync with XLEROBOT_FRAME_TREE.
+XLEROBOT_ARM_FORWARD_X = -0.0911
+
+
+def _robots_bring_their_own_base(robots):
+    """True if any requested robot is mobile, i.e. it stands on the floor on its own
+    chassis and must NOT be perched on the fixed support table."""
+    from robosuite.robots import ROBOT_CLASS_MAPPING
+    from robosuite.robots.mobile_robot import MobileRobot
+
+    if robots is None:
+        return False
+    names = [robots] if isinstance(robots, str) else list(robots)
+    for name in names:
+        cls = ROBOT_CLASS_MAPPING.get(name)
+        if cls is not None and issubclass(cls, MobileRobot):
+            return True
+    return False
+
 
 class cupPnP_task1(SOARM101Lift):
     """
@@ -43,9 +67,40 @@ class cupPnP_task1(SOARM101Lift):
         self._success_counter = 0
 
         table_full_size = np.array(kwargs.get("table_full_size", (0.8, 0.8, 0.05)), dtype=float)
+
         cart_full_size = np.array(cart_full_size, dtype=float)
         cart_center_x = -(table_full_size[0] + cart_full_size[0]) / 2.0 - float(cart_gap)
         cart_top = np.array([cart_center_x, 0.0, float(cart_top_height)], dtype=float)
+
+        # A mobile robot (XLeRobot) arrives on its own RASKOG cart, so it REPLACES the
+        # support table rather than standing on it: the table is not built at all and
+        # the robot is parked on the floor beside the main table.
+        #
+        # It is parked so its ARM BASES land where the desk arm's base was, NOT so its
+        # chassis lands where the support table was. The arms sit 135 mm forward of the
+        # cart centre, so matching chassis-to-chassis would push both arms 18 cm closer
+        # to the table than the task was designed for — they spawn inside the coffee
+        # machine. Matching arm-base to arm-base preserves the reach geometry.
+        self.robot_is_self_supporting = _robots_bring_their_own_base(kwargs.get("robots"))
+        if self.robot_is_self_supporting:
+            desk_arm_base_x = cart_center_x + float(robot_on_cart_offset[0])
+            cart_full_size = np.array((*XLEROBOT_CART_FOOTPRINT, 0.0), dtype=float)
+            cart_center_x = desk_arm_base_x - XLEROBOT_ARM_FORWARD_X
+            # ...but never at the price of driving the chassis into the table. The arms
+            # bolt to the BACK of the cart, so matching the desk arm's x exactly would
+            # push the cart 3 cm past the table edge. Clamp to the table standoff; the
+            # arms then sit slightly further back than the desk arm did.
+            max_cart_center_x = (
+                -(table_full_size[0] + cart_full_size[0]) / 2.0 - float(cart_gap)
+            )
+            cart_center_x = min(cart_center_x, max_cart_center_x)
+            # y=0: the two arms straddle the centreline at +/-0.15, so the desk arm's
+            # single-arm y offset does not apply.
+            cart_top = np.array([cart_center_x, 0.0, 0.0], dtype=float)
+            robot_on_cart_offset = (0.0, 0.0, 0.0)
+            # SOARM101Lift hardcodes a NullMount (right for a desk arm); a mobile robot
+            # needs its real mobile base or robot0_base_pos has no site to read.
+            kwargs.setdefault("base_types", "default")
 
         self.cart_full_size = cart_full_size
         self.cart_top = cart_top
@@ -61,7 +116,23 @@ class cupPnP_task1(SOARM101Lift):
             np.array(kwargs["robot_support_table_offset"], dtype=float)
             + np.array(kwargs["robot_support_robot_offset"], dtype=float)
         )
+        if self.robot_is_self_supporting:
+            # robot_base_pos only drives the head-camera extrinsic, which is defined
+            # relative to the ARM mount. For a self-supporting robot the base frame is
+            # on the floor, so point this at the midpoint of the two arm bases instead
+            # — that keeps the cameras framed as they are for the desk arm.
+            self.robot_base_pos = np.array(
+                [cart_center_x + XLEROBOT_ARM_FORWARD_X, 0.0, XLEROBOT_ARM_DECK_Z],
+                dtype=float,
+            )
         super().__init__(*args, reward_shaping=reward_shaping, **kwargs)
+
+    def _add_robot_support_table(self, mujoco_arena):
+        # A self-supporting robot brings its own chassis; adding the stand-in table
+        # here would bury that chassis inside a second collision box.
+        if self.robot_is_self_supporting:
+            return
+        super()._add_robot_support_table(mujoco_arena)
 
     def _load_model(self):
         # TableArena defines table_offset Z as the tabletop surface.

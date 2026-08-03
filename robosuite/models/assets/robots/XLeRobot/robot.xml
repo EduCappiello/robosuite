@@ -10,8 +10,10 @@
   - Mount transforms: initial estimates from upstream Vector-Wangel/XLeRobot
     simulation/mujoco/xlerobot.xml @ 3d14695e, remapped to the robosuite base frame
     (+x forward, +y left, z up, origin on the floor under the cart center):
-      right_arm_base (0.1352, -0.15, 0.8215)   left_arm_base (0.1352, +0.15, 0.8215)
-      head_pan (-0.125, 0, 0.945)              head_tilt +(0.05, 0, 0.18)
+      right_arm_base (-0.0911, -0.137, 0.8215) left_arm_base (-0.0911, +0.137, 0.8215)
+      head_pan (-0.103, 0, 1.094)              head_tilt +(0.001, 0.002, 0.09815)
+    The arm bases are the CENTRES OF THE TWO CIRCULAR PADS on the top plate mesh
+    (topbase1), circle-fitted to sub-mm; upstream's URDF mount agrees on x=-0.09.
     Arms mounted flat (pure yaw = 0 assumed): gravity in each mount frame equals the
     desk-mount convention, so the per-arm estimator stack applies unchanged.
     VERIFY on hardware (Project_definition §3.3 Validations A/C) before trusting
@@ -20,12 +22,17 @@
   - Base motion: 3 virtual planar joints come from the merged NullMobileBase
     (robosuite convention; upstream XLeRobot sim drives its base the same way).
     Physical wheels are not simulated; kiwi-drive mixing lives outside the sim.
-  - Chassis: primitive stand-in for the IKEA RASKOG cart. Collision box stops at
-    z=0.60 so folded arms can never phantom-contact the top plate (convex-hull
-    lesson from the SOARM101 gripper/shoulder exclusion). Inertial is a documented
-    placeholder — irrelevant for Stage-1 statics (base parked), required for Tier 2.
-  - Head: joints + position actuators + camera (upstream has neither actuators nor
-    geoms); ranges from upstream, masses are estimates (head is not force-estimated).
+  - Chassis: the REAL IKEA RASKOG cart, from the upstream URDF release
+    (simulation/xlerobot_urdf.zip). Visual meshes only; collision stays a hand-built
+    hollow shell (cheap, and it keeps arms off the cart via parent-child filtering —
+    convex-hull lesson from the SOARM101 gripper/shoulder exclusion). Inertial is a
+    documented placeholder — irrelevant for Stage-1 statics (base parked), Tier 2 TODO.
+  - Head: upstream's mast/gimbal meshes at their CAD frames, shifted +0.041 m with the
+    mounting plate onto our arm deck. Actuators and ranges are ours; masses are
+    estimates (the head is not force-estimated).
+  - No wrist cameras: the real build has none, so the sim must not either (a sim-only
+    camera would produce observations no policy can get on hardware). The upstream
+    XLeRobot_camera1/2 meshes were tried and removed. Head camera only.
 -->
 <mujoco model="xlerobot">
   <compiler angle="radian" meshdir="." autolimits="true"/>
@@ -55,37 +62,52 @@
       <!-- Chassis placeholder inertial: ~cart + battery + plates. Box inertia of the
            0.35 x 0.45 x 0.78 shell at 9 kg. Tier-2 TODO: replace with CAD values. -->
       <inertial pos="0 0 0.35" mass="9.0" diaginertia="0.20 0.16 0.11"/>
-      <!-- Collision: lower column only (z 0.02..0.60) — arms cannot reach it, and
-           the 2 cm floor clearance keeps the sliding chassis from adding phantom
-           ground friction during base motion (the virtual planar joints, not the
-           box, are the ground interface). -->
-      <geom name="chassis_col" type="box" pos="0 0 0.31" size="0.175 0.225 0.29" group="0" rgba="0.3 0.3 0.35 0.0"/>
-      <!-- Visuals: the 3-layer RASKOG-style cart. Layer heights are what the
-           frame tree references — layer 2 (z=0.42) is the IMU mount plane and
-           the cup-holder tray location; layer 3 (z=0.816) carries both arms.
-           MEASURE these on the physical build (Project_definition §3.3). -->
-      <geom name="tray_layer1_vis" type="box" pos="0 0 0.05" size="0.175 0.225 0.008" contype="0" conaffinity="0" group="1" rgba="0.25 0.25 0.28 1"/>
-      <geom name="tray_layer1_lip_x" type="box" pos="0 0.225 0.075" size="0.175 0.004 0.033" contype="0" conaffinity="0" group="1" rgba="0.30 0.30 0.34 1"/>
-      <geom name="tray_layer1_lip_x2" type="box" pos="0 -0.225 0.075" size="0.175 0.004 0.033" contype="0" conaffinity="0" group="1" rgba="0.30 0.30 0.34 1"/>
-      <!-- Layer 2 = IMU plane + cup-holder tray deck (slots are printed hardware,
-           not modelled: add them here when the holder design is frozen). -->
-      <geom name="tray_layer2_vis" type="box" pos="0 0 0.42" size="0.175 0.225 0.008" contype="0" conaffinity="0" group="1" rgba="0.25 0.25 0.28 1"/>
-      <geom name="tray_layer2_lip_x" type="box" pos="0 0.225 0.445" size="0.175 0.004 0.033" contype="0" conaffinity="0" group="1" rgba="0.30 0.30 0.34 1"/>
-      <geom name="tray_layer2_lip_x2" type="box" pos="0 -0.225 0.445" size="0.175 0.004 0.033" contype="0" conaffinity="0" group="1" rgba="0.30 0.30 0.34 1"/>
-      <!-- Layer 3 = arm deck (top surface z=0.816; arm bases sit at z=0.8215). -->
-      <geom name="tray_layer3_vis" type="box" pos="0 0 0.810" size="0.175 0.225 0.006" contype="0" conaffinity="0" group="1" rgba="0.25 0.25 0.28 1"/>
-      <!-- Corner posts tying the three layers together. -->
-      <geom name="post_fl_vis" type="cylinder" pos="0.163 0.213 0.43" size="0.009 0.383" contype="0" conaffinity="0" group="1" rgba="0.45 0.47 0.50 1"/>
-      <geom name="post_fr_vis" type="cylinder" pos="0.163 -0.213 0.43" size="0.009 0.383" contype="0" conaffinity="0" group="1" rgba="0.45 0.47 0.50 1"/>
-      <geom name="post_bl_vis" type="cylinder" pos="-0.163 0.213 0.43" size="0.009 0.383" contype="0" conaffinity="0" group="1" rgba="0.45 0.47 0.50 1"/>
-      <geom name="post_br_vis" type="cylinder" pos="-0.163 -0.213 0.43" size="0.009 0.383" contype="0" conaffinity="0" group="1" rgba="0.45 0.47 0.50 1"/>
+      <!-- ── Collision: a hollow SHELL, not a solid block ────────────────────────
+           The cart must stop against an obstacle at ANY height. The previous
+           single box covered only z 0.02..0.60, so the arm deck (z=0.816) had no
+           collider at all and the whole cart drove straight through a 0.8 m
+           tabletop. Shell = lower basket box + a plate per upper deck + the four
+           corner posts, which leaves the basket interiors free so objects can rest
+           ON a deck (layer 2 is the cup-holder plane) instead of being swallowed by
+           a solid block.
+           2 cm floor clearance is kept: the virtual planar joints, not these boxes,
+           are the ground interface, so the shell must never touch the floor.
+           Contacts with the arms are filtered by MuJoCo's parent-child rule
+           (right/left_arm_base are children of this body); see <contact> for the
+           deck-vs-shoulder pairs that rule does not cover. -->
+      <geom name="chassis_col" type="box" pos="0 0 0.215" size="0.175 0.225 0.195" group="0" rgba="0.3 0.3 0.35 0.0"/>
+      <geom name="tray_layer2_col" type="box" pos="0 0 0.420" size="0.175 0.225 0.008" group="0" rgba="0 0 0 0"/>
+      <geom name="tray_layer2_wall_yp_col" type="box" pos="0 0.221 0.453" size="0.175 0.004 0.025" group="0" rgba="0 0 0 0"/>
+      <geom name="tray_layer2_wall_yn_col" type="box" pos="0 -0.221 0.453" size="0.175 0.004 0.025" group="0" rgba="0 0 0 0"/>
+      <geom name="tray_layer2_wall_xp_col" type="box" pos="0.171 0 0.453" size="0.004 0.225 0.025" group="0" rgba="0 0 0 0"/>
+      <geom name="tray_layer2_wall_xn_col" type="box" pos="-0.171 0 0.453" size="0.004 0.225 0.025" group="0" rgba="0 0 0 0"/>
+      <geom name="tray_layer3_col" type="box" pos="0 0 0.810" size="0.175 0.225 0.006" group="0" rgba="0 0 0 0"/>
+      <geom name="post_fl_col" type="cylinder" pos="0.163 0.213 0.620" size="0.009 0.190" group="0" rgba="0 0 0 0"/>
+      <geom name="post_fr_col" type="cylinder" pos="0.163 -0.213 0.620" size="0.009 0.190" group="0" rgba="0 0 0 0"/>
+      <geom name="post_bl_col" type="cylinder" pos="-0.163 0.213 0.620" size="0.009 0.190" group="0" rgba="0 0 0 0"/>
+      <geom name="post_br_col" type="cylinder" pos="-0.163 -0.213 0.620" size="0.009 0.190" group="0" rgba="0 0 0 0"/>
+
+      <!-- ── Visuals: the real IKEA RASKOG cart + mast, from upstream CAD ────────
+           raskogbody/wheel1/wheel2 are the actual trolley (12.6k tris) at upstream's
+           NATIVE scale — the RASKOG is genuinely 0.78 m tall, so it is NOT stretched
+           to our deck. Its rim lands at z=0.775; the 41 mm up to our guarded arm deck
+           (0.816) is exactly the mounting plate, which is what topbase1 models. That
+           same +0.041 shift is applied to the whole mast/head assembly below.
+           Geom poses are upstream's baked visual origins — see the <asset> note. -->
+      <geom name="cart_body_vis" type="mesh" mesh="raskogbody" pos="-0.01668 0.502 0.895" euler="1.5708 0 0" contype="0" conaffinity="0" group="1" rgba="0.149 0.251 0.502 1"/>
+      <geom name="cart_frame_vis" type="mesh" mesh="raskogwheel1" pos="-0.01668 0.502 0.895" euler="1.5708 0 0" contype="0" conaffinity="0" group="1" rgba="0.50 0.50 0.50 1"/>
+      <geom name="cart_caster_vis" type="mesh" mesh="raskogwheel2" pos="-0.01668 0.502 0.895" euler="1.5708 0 0" contype="0" conaffinity="0" group="1" rgba="0.10 0.10 0.10 1"/>
+      <!-- Arm mounting plate + head mast (topbase1 spans z 0.737..1.174, straddling
+           the cart rim and carrying the head). Layer 3 top surface = z 0.816. -->
+      <geom name="mast_vis" type="mesh" mesh="topbase1" pos="-0.44 -0.005 0.171" contype="0" conaffinity="0" group="1" rgba="0.30 0.30 0.30 1"/>
+      <geom name="mast_servo_vis" type="mesh" mesh="topbase2" pos="-0.298 0.006 0.056" euler="0 0 3.14" contype="0" conaffinity="0" group="1" rgba="0.10 0.10 0.10 1"/>
       <!-- Omni wheels (visual only — the planar joints are the ground interface). -->
       <geom name="wheel_f_vis" type="cylinder" pos="0.13 0 0.035" size="0.035 0.012" quat="0.707107 0.707107 0 0" contype="0" conaffinity="0" group="1" rgba="0.15 0.15 0.15 1"/>
       <geom name="wheel_bl_vis" type="cylinder" pos="-0.09 0.145 0.035" size="0.035 0.012" quat="0.612372 0.612372 0.353553 0.353553" contype="0" conaffinity="0" group="1" rgba="0.15 0.15 0.15 1"/>
       <geom name="wheel_br_vis" type="cylinder" pos="-0.09 -0.145 0.035" size="0.035 0.012" quat="0.612372 0.612372 -0.353553 -0.353553" contype="0" conaffinity="0" group="1" rgba="0.15 0.15 0.15 1"/>
 
       <!-- ══════════════════ RIGHT ARM (first in document order) ══════════════════ -->
-      <body name="right_arm_base" pos="0.1352 -0.15 0.8215" quat="1 0 0 0">
+      <body name="right_arm_base" pos="-0.0911 -0.137 0.8215" quat="1 0 0 0">
         <inertial pos="0.0137179 -5.19711e-05 0.0334843" mass="0.147" fullinertia="0.000114686 0.000136117 0.000130364 -4.59787e-07 4.97151e-06 9.75275e-08"/>
         <site name="right_center" pos="0 0 0" size="0.01" rgba="1 0.3 0.3 1" group="2"/>
         <geom type="mesh" class="visual" pos="-0.00636471 -9.94414e-05 -0.0024" quat="0.5 0.5 0.5 0.5" mesh="base_motor_holder_so101_v1" material="base_motor_holder_so101_v1_material"/>
@@ -158,7 +180,7 @@
       </body>
 
       <!-- ══════════════════ LEFT ARM (second in document order) ══════════════════ -->
-      <body name="left_arm_base" pos="0.1352 0.15 0.8215" quat="1 0 0 0">
+      <body name="left_arm_base" pos="-0.0911 0.137 0.8215" quat="1 0 0 0">
         <inertial pos="0.0137179 -5.19711e-05 0.0334843" mass="0.147" fullinertia="0.000114686 0.000136117 0.000130364 -4.59787e-07 4.97151e-06 9.75275e-08"/>
         <site name="left_center" pos="0 0 0" size="0.01" rgba="0.3 0.3 1 1" group="2"/>
         <geom type="mesh" class="visual" pos="-0.00636471 -9.94414e-05 -0.0024" quat="0.5 0.5 0.5 0.5" mesh="base_motor_holder_so101_v1" material="base_motor_holder_so101_v1_material"/>
@@ -242,18 +264,36 @@
         <site group="3" name="imu_site" pos="0 0 0" quat="1 0 0 0"/>
       </body>
 
-      <!-- ══════════════════ HEAD (pan/tilt; ranges from upstream) ══════════════════ -->
-      <body name="head_pan_link" pos="-0.125 0 0.945" quat="1 0 0 0">
+      <!-- ══════════════════ HEAD (pan/tilt; upstream CAD geometry) ══════════════════
+           Frames adopted from the upstream URDF assembly so the mast/gimbal meshes fit
+           exactly, then shifted +0.041 with the rest of the mast (see cart note above):
+           pan axis z = 1.053 + 0.041 = 1.094, tilt = pan + 0.09815 -> z 1.192.
+           This REPLACED an earlier CAD estimate (pan at z=0.945) — the head is not
+           force-estimated, so no dynamics result depends on it, but XLEROBOT_FRAME_TREE
+           and its drift-guard test must move with it.
+           Upstream bakes a pi yaw into its tilt link; we keep OUR joint convention
+           (identity tilt frame, so head_tilt sign/range and the teleop i/k mapping are
+           unchanged) and compensate that pi in the two tilt geom poses instead. -->
+      <body name="head_pan_link" pos="-0.103 0 1.094" quat="1 0 0 0">
         <joint axis="0 0 1" name="head_pan" type="hinge" range="-1.57 1.57" class="sts3215"/>
-        <inertial pos="0.01 0 0.09" mass="0.15" diaginertia="6e-4 6e-4 2e-4"/>
-        <geom name="head_neck_vis" type="cylinder" pos="0 0 0.09" size="0.02 0.09" contype="0" conaffinity="0" group="1" rgba="0.25 0.25 0.28 1"/>
-        <body name="head_tilt_link" pos="0.05 0 0.18" quat="1 0 0 0">
+        <inertial pos="0 0 0.02" mass="0.15" diaginertia="6e-4 6e-4 2e-4"/>
+        <geom name="head_pan_vis" type="mesh" mesh="tophead1" pos="0.335 0.005 -0.923" quat="0 0 0 1" contype="0" conaffinity="0" group="1" rgba="0.25 0.25 0.28 1"/>
+        <geom name="head_pan_servo_vis" type="mesh" mesh="tophead4" pos="-1.17 0.009 0.262" quat="0 0.707388 0 0.706825" contype="0" conaffinity="0" group="1" rgba="0.15 0.15 0.15 1"/>
+        <body name="head_tilt_link" pos="0.001 0.002 0.09815" quat="1 0 0 0">
           <joint axis="0 1 0" name="head_tilt" type="hinge" range="-0.76 1.45" class="sts3215"/>
-          <inertial pos="0.02 0 0.01" mass="0.25" diaginertia="4e-4 4e-4 3e-4"/>
-          <geom name="head_cam_vis" type="box" pos="0.02 0 0.01" size="0.02 0.045 0.0125" contype="0" conaffinity="0" group="1" rgba="0.15 0.15 0.15 1"/>
-          <!-- RealSense stand-in: looks along +x of the tilt link. -->
-          <camera name="head_cam" pos="0.045 0 0.01" xyaxes="0 -1 0 0 0 1" fovy="42.5"/>
-          <site group="3" name="head_cam_frame" pos="0.045 0 0.01" quat="1 0 0 0"/>
+          <inertial pos="-0.01 0 0.02" mass="0.25" diaginertia="4e-4 4e-4 3e-4"/>
+          <!-- Rotated 180 deg about z from upstream's baked pose: as shipped, the
+               gimbal and camera bar face AWAY from the arms. Joint axes, ranges and
+               the teleop i/k/j/l mapping are untouched — only the geom poses turn. -->
+          <geom name="head_tilt_vis" type="mesh" mesh="tophead5" pos="0.16265 -0.006 -1.16815" contype="0" conaffinity="0" group="1" rgba="0.20 0.20 0.20 1"/>
+          <geom name="head_cam_vis" type="mesh" mesh="tophead6" pos="0.16265 -0.006 -1.16815" contype="0" conaffinity="0" group="1" rgba="0.10 0.10 0.10 1"/>
+          <!-- Just CLEAR of the front (+x) face of the tophead6 camera bar, which ends
+               at x=+0.0326 in this frame. Sitting flush (x=0.008) buried the lens inside
+               the tophead5 gimbal (x -0.012..+0.013) and every frame rendered black.
+               Looks along +x of the tilt link, i.e. forward over the arms — our
+               convention, not upstream's ROS optical frame. -->
+          <camera name="head_cam" pos="0.036 0.003 0.027" xyaxes="0 -1 0 0 0 1" fovy="42.5"/>
+          <site group="3" name="head_cam_frame" pos="0.036 0.003 0.027" quat="1 0 0 0"/>
         </body>
       </body>
     </body>
@@ -271,6 +311,21 @@
     <mesh name="motor_holder_so101_wrist_v1" file="../SOARM101/SO101/assets/motor_holder_so101_wrist_v1.stl"/>
     <mesh name="sts3215_03a_no_horn_v1" file="../SOARM101/SO101/assets/sts3215_03a_no_horn_v1.stl"/>
     <mesh name="base_so101_v2" file="../SOARM101/SO101/assets/base_so101_v2.stl"/>
+    <!-- Assembly meshes from the upstream Vector-Wangel XLeRobot URDF release
+         (simulation/xlerobot_urdf.zip, meshes/xlerobot/assets/). Vertices are baked
+         in ABSOLUTE mm at their assembly pose, so each geom carries upstream's own
+         visual origin; the raskog* meshes are additionally Y-up (euler x=+90) and
+         use upstream's anisotropic 0.9/1.0/0.9 scale. Do not "clean up" these poses
+         — they are the CAD assembly, not modelling conveniences. -->
+    <mesh name="raskogbody" file="assets/raskogbody.stl" scale="0.0009 0.001 0.0009"/>
+    <mesh name="raskogwheel1" file="assets/raskogwheel1.stl" scale="0.0009 0.001 0.0009"/>
+    <mesh name="raskogwheel2" file="assets/raskogwheel2.stl" scale="0.0009 0.001 0.0009"/>
+    <mesh name="topbase1" file="assets/topbase1.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="topbase2" file="assets/topbase2.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="tophead1" file="assets/tophead1.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="tophead4" file="assets/tophead4.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="tophead5" file="assets/tophead5.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="tophead6" file="assets/tophead6.stl" scale="0.001 0.001 0.001"/>
     <material name="base_motor_holder_so101_v1_material" rgba="1 0.82 0.12 1"/>
     <material name="base_so101_v2_material" rgba="1 0.82 0.12 1"/>
     <material name="sts3215_03a_v1_material" rgba="0.1 0.1 0.1 1"/>
@@ -311,8 +366,13 @@
     <motor class="sts3215" name="left_elbow_flex" joint="left_elbow_flex" ctrllimited="true" ctrlrange="-3.35 3.35"/>
     <motor class="sts3215" name="left_wrist_flex" joint="left_wrist_flex" ctrllimited="true" ctrlrange="-3.35 3.35"/>
     <motor class="sts3215" name="left_wrist_roll" joint="left_wrist_roll" ctrllimited="true" ctrlrange="-3.35 3.35"/>
-    <position class="sts3215" name="head_pan" joint="head_pan" ctrllimited="true" ctrlrange="-1.57 1.57"/>
-    <position class="sts3215" name="head_tilt" joint="head_tilt" ctrllimited="true" ctrlrange="-0.76 1.45"/>
+    <!-- TORQUE actuators, exactly like the arms. These used to be <position> servos,
+         which silently broke head aiming: robosuite's JOINT_POSITION controller writes
+         a TORQUE into ctrl, and a position actuator reads that number as an angle
+         setpoint, so the head settled at ~0.72x every commanded angle. Joint ranges
+         still limit travel; the controller does the position servoing. -->
+    <motor class="sts3215" name="head_pan" joint="head_pan" ctrllimited="true" ctrlrange="-3.35 3.35"/>
+    <motor class="sts3215" name="head_tilt" joint="head_tilt" ctrllimited="true" ctrlrange="-3.35 3.35"/>
   </actuator>
   <equality/>
 </mujoco>

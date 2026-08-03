@@ -1,0 +1,45 @@
+<mujoco model="room128_arena">
+  <!-- Room 128 (classroom128_v2.usd), the room the real coffee dataset was recorded
+       in: IntelligentDecisionLab/xlerobot-coffee-real, all episodes under room-128/.
+
+       GENERATED - do not hand-edit. Source of truth is
+       robosuite/environments/Room_128/classroom128_v2.usd; the USD is Z-up in metres
+       (same conventions as MuJoCo) and built entirely from Cube prims, so every box
+       below is a 1:1 copy. The only change is a translation of (-1.8325, -2.4675)
+       that re-centres the room on the origin, because robosuite tasks build their
+       furniture around (0,0) while the USD keeps its origin in a corner.
+
+       Inner floor is 3.665 x 4.935 m, walls 2.80 m tall.
+       Walls and furniture COLLIDE (this arena exists for the t4_navigate task, where
+       the cart has to drive around them) - unlike robosuite's stock arenas, whose
+       walls are visual-only. -->
+  <asset>
+    <texture builtin="gradient" height="256" rgb1=".9 .9 1." rgb2=".2 .3 .4" type="skybox" width="256"/>
+    <texture file="../textures/light-gray-floor-tile.png" type="2d" name="texplane"/>
+    <material name="floorplane" reflectance="0.01" shininess="0.0" specular="0.0" texrepeat="8 8" texture="texplane" texuniform="true"/>
+    <texture file="../textures/light-gray-plaster.png" type="2d" name="tex-light-gray-plaster"/>
+    <material name="walls_mat" reflectance="0.0" shininess="0.1" specular="0.1" texrepeat="6 6" texture="tex-light-gray-plaster" texuniform="true"/>
+    <material name="furniture_mat" reflectance="0.0" shininess="0.2" specular="0.2" rgba="0.55 0.45 0.35 1"/>
+  </asset>
+  <worldbody>
+    <geom condim="3" group="1" material="floorplane" name="floor" pos="0 0 0" size="1.8325 2.4675 .125" type="plane"/>
+    <geom name="room128_wallfront" type="box" pos="0.0000 -2.5175 1.4000" size="1.8325 0.0500 1.4000" group="1" material="walls_mat" condim="3" friction="1 0.005 0.0001"/>
+    <geom name="room128_wallback" type="box" pos="0.0000 2.5175 1.4000" size="1.8325 0.0500 1.4000" group="1" material="walls_mat" condim="3" friction="1 0.005 0.0001"/>
+    <geom name="room128_wallleft" type="box" pos="-1.8825 0.0000 1.4000" size="0.0500 2.4675 1.4000" group="1" material="walls_mat" condim="3" friction="1 0.005 0.0001"/>
+    <geom name="room128_wallright" type="box" pos="1.8825 0.0000 1.4000" size="0.0500 2.4675 1.4000" group="1" material="walls_mat" condim="3" friction="1 0.005 0.0001"/>
+    <geom name="room128_door" type="box" pos="-1.0075 2.4625 1.0500" size="0.4250 0.0500 1.0500" group="1" material="furniture_mat" condim="3" friction="1 0.005 0.0001"/>
+    <geom name="room128_cabinet" type="box" pos="1.6050 -0.4650 0.4100" size="0.2275 0.3325 0.4100" group="1" material="furniture_mat" condim="3" friction="1 0.005 0.0001"/>
+    <geom name="room128_storage_cabinet" type="box" pos="-1.6225 -1.0825 1.2050" size="0.2100 1.2000 1.2050" group="1" material="furniture_mat" condim="3" friction="1 0.005 0.0001"/>
+    <geom name="room128_desk" type="box" pos="0.8825 2.4325 0.3700" size="0.7500 0.3500 0.3700" group="1" material="furniture_mat" condim="3" friction="1 0.005 0.0001"/>
+    <geom name="room128_desk2" type="box" pos="1.4825 -1.7175 0.3700" size="0.3500 0.7500 0.3700" group="1" material="furniture_mat" condim="3" friction="1 0.005 0.0001"/>
+    <geom name="room128_pillar1" type="box" pos="-1.6325 2.2675 1.4000" size="0.2000 0.2000 1.4000" group="1" material="furniture_mat" condim="3" friction="1 0.005 0.0001"/>
+    <geom name="room128_pillar2" type="box" pos="1.7325 2.2675 1.4000" size="0.1000 0.2000 1.4000" group="1" material="furniture_mat" condim="3" friction="1 0.005 0.0001"/>
+    <light pos="0 0 2.6" dir="0 0 -1" specular="0.2 0.2 0.2" directional="true" castshadow="false"/>
+    <light pos="1.2 1.2 2.4" dir="-0.3 -0.3 -1" specular="0.1 0.1 0.1" directional="true" castshadow="false"/>
+    <camera mode="fixed" name="frontview" pos="1.6 0 1.45" quat="0.56 0.43 0.43 0.56"/>
+    <camera mode="fixed" name="birdview" pos="0 0 6.2" quat="0.7071 0 0 0.7071"/>
+    <camera mode="fixed" name="agentview" pos="0.5 0 1.35" quat="0.653 0.271 0.271 0.653"/>
+    <camera mode="fixed" name="sideview" pos="-0.0565 1.2761 1.4880" quat="0.0099 0.0069 0.5912 0.8064"/>
+    <camera mode="fixed" name="roomview" pos="-1.55 -2.15 2.35" quat="0.780 0.386 0.190 0.455"/>
+  </worldbody>
+</mujoco>

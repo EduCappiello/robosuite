@@ -12,11 +12,21 @@ from robosuite.utils.mjcf_utils import xml_path_completion
 # verified against our physical build (doc §3.3 Validations A/C) before platform
 # force data is trusted. test_xlerobot.py guards these against the MJCF.
 XLEROBOT_FRAME_TREE = {
-    "right_arm_base": {"pos": (0.1352, -0.15, 0.8215), "quat": (1.0, 0.0, 0.0, 0.0)},
-    "left_arm_base": {"pos": (0.1352, 0.15, 0.8215), "quat": (1.0, 0.0, 0.0, 0.0)},
-    # head_tilt_link pos is relative to head_pan_link
-    "head_pan_link": {"pos": (-0.125, 0.0, 0.945), "quat": (1.0, 0.0, 0.0, 0.0)},
-    "head_tilt_link": {"pos": (0.05, 0.0, 0.18), "quat": (1.0, 0.0, 0.0, 0.0)},
+    # Arm bases sit on the two circular mounting pads of the top plate (topbase1),
+    # located by fitting circles to the plate's upper surface: centres
+    # (-0.0911, +/-0.137), pad top z = 0.819, sub-mm fit residual. Upstream's own
+    # arm mount (URDF fixed_Base at x=-0.09) agrees on x. This replaced an earlier
+    # estimate of (+0.1352, +/-0.15), which floated the arms 23 cm forward of the
+    # plate, off the cart's mounting hardware entirely.
+    "right_arm_base": {"pos": (-0.0911, -0.137, 0.8215), "quat": (1.0, 0.0, 0.0, 0.0)},
+    "left_arm_base": {"pos": (-0.0911, 0.137, 0.8215), "quat": (1.0, 0.0, 0.0, 0.0)},
+    # Head frames come from the upstream XLeRobot URDF assembly (the mast/gimbal
+    # meshes are baked at these poses), shifted +0.041 m with the rest of the mast
+    # so its mounting plate meets our arm deck at z=0.816. This replaced an earlier
+    # CAD estimate (pan at z=0.945); the head is not force-estimated, so no dynamics
+    # result depends on it. head_tilt_link pos is relative to head_pan_link.
+    "head_pan_link": {"pos": (-0.103, 0.0, 1.094), "quat": (1.0, 0.0, 0.0, 0.0)},
+    "head_tilt_link": {"pos": (0.001, 0.002, 0.09815), "quat": (1.0, 0.0, 0.0, 0.0)},
     # GY-91 at the 2nd tray layer's geometric centre (z estimated — measure on
     # the build). E-FC compensation transfers its readings to each arm base.
     "imu": {"pos": (0.0, 0.0, 0.42), "quat": (1.0, 0.0, 0.0, 0.0)},
