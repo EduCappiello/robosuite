@@ -70,9 +70,35 @@ heights the frame tree and collision shell reference are:
 | layer 3 (arm deck) | z = 0.816 m | mounting plate; both arm bases bolt here |
 | footprint | 0.392 × 0.467 m | from the mesh; casters + 3 omni wheels (visual only) |
 
-The **cup-holder tray with slots 1–3 is not modelled yet** — it is printed
-hardware whose design isn't frozen. Add it as geoms on layer 2 (`tray_layer2_*`
-in `robot.xml`) once the holder exists.
+**The printed foam cup holder is modelled**, from measurements off the build:
+block **29.5 (L, along y) × 18 (W, along x) × 7 cm**, **six holes of diameter
+7 cm** in 2 rows × 3 columns, 2 cm between holes, 2.25 cm to the short ends. It
+rests on the **top** basket floor (z = 0.688, found by raycasting down inside the
+basket — the three floors are 0.688 / 0.408 / 0.138), so its top sits at 0.758,
+~1.7 cm under the rim, forward of the arm mounting plate.
+
+Two things fell out of the measurements and are worth recording:
+
+- The gaps (3 cm right / 6.5 cm left) sum to **39 cm**, and the basket interior
+  *at that height* measures **39.24 cm**. They agree to 2 mm, which confirms the
+  gaps were taken at the foam's own level rather than at the rim (44 cm). The 3 cm
+  right gap is the anchor; the left lands at 6.7 cm.
+- Across x, the mounting plate leaves **17.96 cm** to the front wall — which is
+  why the block is 18 cm wide. It fills that gap exactly.
+
+MuJoCo has no CSG, so the slab is a lattice of boxes around square apertures with
+each corner chamfered at 45°: a regular octagon inscribing the 7 cm circle. 35
+geoms instead of the ~100 a true ring tessellation needs, round enough to read
+correctly and to retain a cup. It is **collidable** — holding cups is the point.
+
+Adding it exposed a bug in the collision shell. The old `tray_layer3_col`, a solid
+plate at z = 0.810, **capped the basket**: a cup dropped at a slot settled on an
+invisible lid at z = 0.821 and never reached the holder. The real cart has no such
+deck — just a rim, the rear mounting plate and the mast — so that plate is now an
+open basket (floor 0.688, walls to the 0.775 rim) plus separate `deck_plate_col`
+and `mast_col`. Table blocking is unaffected (the corner posts still stop the cart).
+Verified: dropped over a slot the cup enters and seats on the basket floor
+(z = 0.709, 0.2 mm drift); dropped on a rib it rests on top (z = 0.779).
 
 **The cart and mast are the real upstream CAD.** They come from
 Vector-Wangel/XLeRobot's URDF release — `simulation/xlerobot_urdf.zip`,
