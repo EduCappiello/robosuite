@@ -1,5 +1,35 @@
 # XLeRobot in simulation — branch `xlerobot-17dof`
 
+> **Start here (Patricia).** Everything you need, and where it lives:
+>
+> | you want to… | do this |
+> |---|---|
+> | check the branch is sane | §1 — `pytest …test_xlerobot.py …test_xlerobot_gt.py …test_soarm101.py -q` → 26 pass |
+> | see the robot | §2 product shot, or `suite.make('Room128', robots=['XLeRobot'])` |
+> | **put the robot in Room 128** | **§10** — `--robot.env=Room128`, or `suite.make('Room128', …)` |
+> | teleoperate a task | §8 — one command per task, only `--robot.env` changes |
+> | record data that matches the real set | §9 — set `--robot.record_motor_telemetry=true` on **both** sides |
+> | know what moved and why | §3 (frames), §2 (cart/holder), §9 (schema) |
+>
+> **Files.** Robot model `robosuite/models/assets/robots/XLeRobot/robot.xml` (+ CAD
+> under `assets/`); frame registry `robosuite/models/robots/manipulators/xlerobot_robot.py`;
+> arena `robosuite/models/arenas/room128_arena.py`; envs
+> `robosuite/environments/manipulation/{room128,cup_pnp_task1,2,3,5}.py`; sim follower
+> `lerobot/robots/xlerobot_sim/` in the lerobot repo.
+>
+> **Scripts** (all in `robosuite/scripts/`):
+> `usd_to_room128_arena.py` regenerates the arena XML from the USD (needs `usd-core`
+> in a throwaway venv — it is not a project dependency); `gen_cup_holder.py` regenerates
+> the foam cup-holder geoms from the measured dimensions. Both print/write generated
+> output — edit the script, not the XML.
+>
+> **Three traps that cost real time.** (1) Always run from the repo root or with the
+> §0 `PYTHONPATH` exported, or robosuite silently resolves to the main worktree and
+> *every* env reports "not found". (2) `robot0_base` is a **static** shell — probe
+> motion on `mobilebase0_support`, or the robot looks frozen while it is driving.
+> (3) `record_motor_telemetry` must match on real and sim or the datasets differ.
+
+
 The 17-DoF XLeRobot (2 × SO-101 arms + 2-DoF head + omni base) as a robosuite
 v1.5.2 robot, with per-arm force ground truth, teleoperation from two real
 SO-101 leader arms + keyboard, and the estimator-validation harnesses.
@@ -488,7 +518,7 @@ PYTHONPATH=$P:$S conda run -n lerobot python $S/diag_load_residual.py
 
 ---
 
-## 8. Task 1 (`cupPnP_task1`) on XLeRobot
+## 8. The cupPnP tasks on XLeRobot
 
 The task was built around the single desk arm bolted to a support table beside
 the main table. XLeRobot arrives on its own RÅSKOG cart, so that support table is
@@ -534,10 +564,21 @@ mounting one, so it is deliberately left alone here.
 The desk arm is untouched — `robots=['SOARM101']` still builds its support table
 and puts the base at (−0.655, 0.10, 0.77) exactly as before.
 
-### Teleoperating task 1
+### Teleoperating the tasks
 
-The sim follower takes any robosuite env by name, so the leader arms drive the
-task scene instead of `Lift` — same 17 keys, nothing else changes:
+The sim follower takes any robosuite env by name, so the leader arms drive a task
+scene instead of `Lift` — same 17 keys, nothing else changes. **Only
+`--robot.env` differs between tasks:**
+
+| task | `--robot.env` | real dataset | notes |
+|---|---|---|---|
+| 1 | `cupPnP_task1` | `t1_place_cup` | |
+| 2 | `cupPnP_task2` | `t2_push_button` | presses with the **right** hand |
+| 3 | `cupPnP_task3` | `t3_cup_to_tray` | |
+| 4 | — | `t4_navigate` | **not built** — needs `Room128` (§10) |
+| 5 | `cupPnP_task5` | `t5_tray_to_table` | cart spawns rotated 90° |
+
+All four verified through the follower at 120–180 Hz with the two-tile viewer.
 
 ```bash
 export PYTHONPATH=~/Documents/dev/lerobot-1-coffee/src:~/Documents/dev/robosuite-xlerobot
@@ -655,6 +696,48 @@ in the HF dataset lives under `room-128/`. Geometry is a **1:1 copy** of
 no mesh conversion at all. Inner floor **3.665 × 4.935 m**, walls 2.8 m, plus
 `door`, `cabinet`, `storage_cabinet`, `desk`, `desk2`, `pillar1`, `pillar2`.
 
+**`Room128` is a registered env**, so placing the robot in the room is one line —
+no manual arena/task composition:
+
+```python
+import robosuite as suite
+env = suite.make("Room128", robots=["XLeRobot"], has_renderer=True,
+                 has_offscreen_renderer=False, use_camera_obs=False,
+                 ignore_done=True, control_freq=30)
+env.reset()
+```
+
+Park it wherever with `robot_start_pos` / `robot_start_yaw` (room coordinates:
+x ±1.83, y ±2.47, floor z=0):
+
+```python
+env = suite.make("Room128", robots=["XLeRobot"],
+                 robot_start_pos=(-0.8, 1.2, 0.0), robot_start_yaw=1.57, ...)
+```
+
+And drive it with the leader arms + keyboard, exactly like a task:
+
+```bash
+lerobot-teleoperate \
+  --robot.type=xlerobot_sim --robot.env=Room128 \
+  --robot.has_renderer=true --robot.control_freq=60 \
+  --robot.render_camera='[birdview, robot0_head_cam]' \
+  --teleop.type=xlerobot_leader_keyboard \
+  --teleop.left_arm_port=/dev/ttyACM1 --teleop.right_arm_port=/dev/ttyACM0 \
+  --teleop.id=xlerobot_leaders
+```
+
+`birdview` rather than `sideview` here: the cart drives around, and a fixed
+3/4 camera loses it quickly. Reward is always 0 — this env exists to place and
+move the robot, not to score it.
+
+Verified: driving `x.vel=0.3` for 2 s moves the base 0.552 m, and the cart is
+stopped by the furniture (`room128_cabinet`) at x=1.203. **Measure motion on
+`mobilebase0_support`, not `robot0_base`** — the latter is a static shell and will
+make a moving robot look frozen.
+
+The lower-level pieces, if you need them:
+
 ```python
 from robosuite.models.arenas import Room128Arena
 ```
@@ -679,5 +762,7 @@ project dependency — use a throwaway venv).
 | `t5_tray_to_table` | `cupPnP_task5` |
 
 Patricia's set has no task 4 because it is a *navigation* task: it cannot be
-expressed on a tabletop arena. `Room128Arena` is the missing piece, and it is the
-next thing to build.
+expressed on a tabletop arena. The `Room128` env above is the missing piece — the
+room, the robot, collidable furniture and a driveable base. What `t4_navigate`
+still needs on top is a goal pose, a success condition and a reward; the scene
+itself is done.

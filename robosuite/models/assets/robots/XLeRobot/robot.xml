@@ -129,7 +129,12 @@
            apertures with each corner chamfered at 45 deg: a regular octagon
            inscribing the 7 cm circle. Round enough to read correctly and to retain a
            cup, at 35 geoms instead of the ~100 a true ring tessellation would need.
-           Collidable - holding cups is the entire point. -->
+           Collidable - holding cups is the entire point.
+           One slot is a CUP PLACE: blind, 3 cm deep instead of a through-hole, so a
+           cup rests proud of the foam rather than dropping to the basket floor. It is
+           the forward-right slot at (0.1048, -0.1083), floor at z=0.728 - the "top
+           right" one in the head-cam view (image right is world -y, image up is +x).
+           Move it by changing CUP_PLACE in scripts/gen_holder-style regeneration. -->
       <geom name="cup_foam_xrib0" type="box" pos="-0.02520 -0.01830 0.72300" size="0.00500 0.14750 0.03500" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
       <geom name="cup_foam_xrib1" type="box" pos="0.05980 -0.01830 0.72300" size="0.01000 0.14750 0.03500" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
       <geom name="cup_foam_xrib2" type="box" pos="0.14480 -0.01830 0.72300" size="0.00500 0.14750 0.03500" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
@@ -165,6 +170,7 @@
       <geom name="cup_foam_ch121" type="box" pos="0.07493 0.10157 0.72300" size="0.00725 0.01450 0.03500" quat="0.382683 0 0 0.923880" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
       <geom name="cup_foam_ch122" type="box" pos="0.07493 0.04183 0.72300" size="0.00725 0.01450 0.03500" quat="-0.382683 0 0 0.923880" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
       <geom name="cup_foam_ch123" type="box" pos="0.13467 0.04183 0.72300" size="0.00725 0.01450 0.03500" quat="-0.923880 0 0 0.382683" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
+      <geom name="cup_foam_place_bottom" type="box" pos="0.10480 -0.10830 0.70800" size="0.03500 0.03500 0.02000" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
       <!-- Omni wheels (visual only — the planar joints are the ground interface). -->
       <geom name="wheel_f_vis" type="cylinder" pos="0.13 0 0.035" size="0.035 0.012" quat="0.707107 0.707107 0 0" contype="0" conaffinity="0" group="1" rgba="0.15 0.15 0.15 1"/>
       <geom name="wheel_bl_vis" type="cylinder" pos="-0.09 0.145 0.035" size="0.035 0.012" quat="0.612372 0.612372 0.353553 0.353553" contype="0" conaffinity="0" group="1" rgba="0.15 0.15 0.15 1"/>
