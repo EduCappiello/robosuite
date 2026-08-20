@@ -845,3 +845,25 @@ after `urdf_loader.py:93`, before the CasADi copy; codegen cache key must gain t
   signals match the model qpos. Full suite: 73 green.
 - Deferred to M3: `robot_spec` canonical XLeRobot spec + per-arm `servo_raw` registers +
   the lerobot-side dual-arm `robosuite_sim` follower; then EKF-vs-GT grading (E04).
+
+### 2026-08-18 — Task 3 XLeRobot cup-holder success gate repair
+
+- Root-caused the invalid Task 3 step-25/step-100 evaluation labels: the self-supporting
+  XLeRobot path still graded against the legacy desk-arm support table (`cart_top z=0.770`
+  and the complete cart footprint). The physical blind holder floor is at `z=0.745`, so a
+  correctly inserted cup was 25 mm below the old reference and failed its 15 mm lower
+  tolerance. Conversely, a cup resting on the holder rim or elsewhere on the cart could be
+  accepted by the overly broad legacy XY gate.
+- Added shared, MJCF-measured holder geometry constants (center, 35 mm half-size, 0.745 m
+  support plane). Task 3 now transforms the cup into the XLeRobot chassis frame, requires
+  the full 30 mm-radius cup footprint to fit inside the designated holder aperture, and
+  checks height against the holder floor. The desk-arm `SOARM101` path retains its original
+  support-table bounds and `z=0.770` reference.
+- The task target/reward observable now points to the same XLeRobot holder center, and Task 3
+  success again requires the gripper-clear gate in addition to upright and released. Velocity
+  is not a success condition, consistent with the current PnP semantics.
+- Regression coverage checks the constants against `cup_foam_place_bottom`, rotated chassis
+  coordinates, acceptance on the holder floor, and rejection at the obsolete cart-top height
+  and away from the holder. Targeted result: 7 tests green (including a real XLeRobot env);
+  the complete `test_xlerobot.py` + `test_soarm101.py` related suite is 32/32 green. Existing
+  step-25/step-100 Task 3 JSON remains invalid historical data and must be rerun.

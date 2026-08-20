@@ -319,7 +319,7 @@ when you want mouse orbit and are *not* driving from the keyboard.
 | `--robot.viewer_backend` | `opencv` | `opencv` (keys safe, fixed cams) or `mjviewer` (orbit, steals keys) |
 | `--robot.render_camera` | `[agentview, robot0_head_cam]` | camera tiles in the viewer window |
 | `--robot.viewer_fps` | `20` | display refresh cap, decoupled from `control_freq` |
-| `--robot.viewer_height/width` | `360` / `480` | per-tile display size |
+| `--robot.viewer_height/width` | `480` / `640` | per-tile display size |
 | `--robot.camera_names` | `[]` | cameras recorded **into the observation** |
 
 The only on-robot camera is `robot0_head_cam`, aimed by the head servos. **There
@@ -766,3 +766,36 @@ expressed on a tabletop arena. The `Room128` env above is the missing piece — 
 room, the robot, collidable furniture and a driveable base. What `t4_navigate`
 still needs on top is a goal pose, a success condition and a reward; the scene
 itself is done.
+
+---
+
+## 11. Current manipulation-task integration
+
+The current `xlerobot-17dof` manipulation setup includes the following local
+integration work:
+
+- `LockedNullMobileBase` preserves the three base action/state channels while
+  constraining the chassis to its reset pose. Contact from either arm therefore
+  cannot move the cart during Tasks 1, 2, 3, or 5.
+- The foam cup holder and blind holder floor are raised by 17 mm so the holder
+  top is flush with the cart tray rim. Task 3 and Task 5 use the same holder
+  center and support-plane constants from `soarm101_lift.py`.
+- The block-built coffee machine contains a physical 10 cm white cup pad. Task
+  1 grades the cup center against this round pad and requires the cup to be
+  upright, released, and at least 8 cm clear of the active gripper.
+- Tasks 1, 3, and 5 apply small reset-time cup position, yaw, and visual-color
+  randomization. Deterministic reset mode disables this randomization.
+- Task 2 attaches its stylus to the XLeRobot right fixed gripper and retains the
+  seven-button contact classification used by the desk-arm version.
+- The right fixed gripper carries `assets/version0.stl` plus an optional
+  `right_gripper_cam`. Tune the bracket or child camera independently with
+  `tools/tune_xlerobot_gripper_camera_mount.py`.
+- Viewer-only alpha/RGB overrides are implemented in `mjviewer_renderer.py`.
+  They operate on a copied render model, so recorded camera observations keep
+  the original opaque materials. The OpenCV viewer now opens at the rendered
+  image resolution and remains resizable.
+
+The task implementations share gripper-tip and jaw-contact helpers so success
+checks work for both the single SOARM101 and the dual-arm XLeRobot. XLeRobot cup
+tasks use the left arm as the manipulation arm; Task 2's stylus uses the right
+arm.
