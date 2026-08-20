@@ -19,6 +19,9 @@ from robosuite.utils.transform_utils import convert_quat
 XLEROBOT_CART_FOOTPRINT = (0.392, 0.467)   # chassis x, y from the RASKOG mesh
 XLEROBOT_ARM_DECK_Z = 0.8215               # arm-base height on the mounting pads
 XLEROBOT_ARM_FORWARD_X = -0.0911           # arms sit BEHIND the chassis centre
+XLEROBOT_CUP_HOLDER_CENTER = np.array([0.10480, -0.10830, 0.0], dtype=float)
+XLEROBOT_CUP_HOLDER_HALF_SIZE = np.array([0.03500, 0.03500], dtype=float)
+XLEROBOT_CUP_HOLDER_SUPPORT_Z = 0.74500
 SELF_SUPPORT_TABLE_GAP = 0.01              # chassis-to-table clearance
 
 
@@ -123,13 +126,12 @@ class SOARM101Lift(Lift):
         self.robot_support_table_yaw = float(robot_support_table_yaw)
         if (self.robot_support_table_full_size is None) != (self.robot_support_table_offset is None):
             raise ValueError("robot support table size and offset must be provided together")
-        # A mobile robot needs its real mobile base: this class hardcodes a NullMount,
-        # which is right for a desk arm but leaves a mobile robot with a fixed_mount
-        # that has no "center" site, so robot0_base_pos has nothing to read and the
-        # env dies during observable setup.
+        # Manipulation tasks keep XLeRobot parked: retain its three base channels for
+        # 17-DoF dataset parity, but constrain them so contact cannot move the chassis.
         self.robot_is_self_supporting = robots_bring_their_own_base(robots)
         if self.robot_is_self_supporting and base_types == "NullMount":
-            base_types = "default"
+            names = [robots] if isinstance(robots, str) else list(robots)
+            base_types = "LockedNullMobileBase" if "XLeRobot" in names else "default"
         super().__init__(
             robots=robots,
             env_configuration=env_configuration,
@@ -184,6 +186,7 @@ class SOARM101Lift(Lift):
             xpos = self.robot_support_table_offset + rot_z @ self.robot_support_robot_offset
         if self.robot_is_self_supporting:
             xpos = self._self_supporting_base_xpos(xpos)
+        self.robot_world_base_pos = np.array(xpos, dtype=float)
         self.robots[0].robot_model.set_base_xpos(xpos)
         if self.robot_support_table_offset is not None:
             self.robots[0].robot_model.set_base_ori(
@@ -225,18 +228,32 @@ class SOARM101Lift(Lift):
         for _light in mujoco_arena.worldbody.findall(".//light"):
             _light.set("castshadow", "false")
 
-        # Blue "X" drop-target decal on the table top (visual only), matching the real scene
-        # so the policy isn't shown an out-of-distribution empty target zone. Two crossed thin
-        # boxes flat on the surface; position = table_offset + target_offset (world XY).
-        _tx = float(self.table_offset[0] + self.target_offset[0])
-        _ty = float(self.table_offset[1] + self.target_offset[1])
-        _tz = float(self.table_offset[2] + 0.0015)
-        for _nm, _ang in (("target_x_a", "0 0 1 0.7853982"), ("target_x_b", "0 0 1 -0.7853982")):
-            ET.SubElement(mujoco_arena.worldbody, "geom", {
-                "name": _nm, "type": "box", "size": "0.032 0.0015 0.0001",
-                "pos": f"{_tx} {_ty} {_tz}", "axisangle": _ang,
-                "rgba": "0.05 0.2 0.85 1", "contype": "0", "conaffinity": "0", "group": "1",
-            })
+        # Keep the real-scene blue X for the desk-mounted SO101 setup only.
+        # XLeRobot does not have this decal on its cart, so it must also stay out
+        # of recorded observations rather than being hidden in the viewer alone.
+        if not self.robot_is_self_supporting:
+            _tx = float(self.table_offset[0] + self.target_offset[0])
+            _ty = float(self.table_offset[1] + self.target_offset[1])
+            _tz = float(self.table_offset[2] + 0.0015)
+            for _nm, _ang in (
+                ("target_x_a", "0 0 1 0.7853982"),
+                ("target_x_b", "0 0 1 -0.7853982"),
+            ):
+                ET.SubElement(
+                    mujoco_arena.worldbody,
+                    "geom",
+                    {
+                        "name": _nm,
+                        "type": "box",
+                        "size": "0.032 0.0015 0.0001",
+                        "pos": f"{_tx} {_ty} {_tz}",
+                        "axisangle": _ang,
+                        "rgba": "0.05 0.2 0.85 1",
+                        "contype": "0",
+                        "conaffinity": "0",
+                        "group": "1",
+                    },
+                )
 
         # Original block-built XLeRobot coffee machine. Its source dimensions
         # are 24.5 x 27.7 x 43.4 cm (width Y, depth X, height Z).
@@ -276,20 +293,31 @@ class SOARM101Lift(Lift):
         self.coffee_machine.get_obj().set("pos", " ".join(str(float(v)) for v in machine_pos))
         self.coffee_machine.get_obj().set("quat", " ".join(str(float(v)) for v in machine_quat))
 
-        # These values come directly from the block model's receptacle site,
-        # base top, front opening, and inner face of its back wall.
-        receptacle_local = np.array([-0.0554, 0.0, 0.085])
-        self.coffee_target_center = machine_pos + receptacle_local * uniform_scale
-
-        tray_top_local_z = 0.035
-        tray_local_x_min = -0.1385
-        tray_local_x_max = 0.1035
+        # Physical white pad inside the machine. The pad is 10 cm in diameter,
+        # 3 mm thick, and its front edge sits 3.5 cm behind the machine front.
+        machine_front_local_x = -0.1385
+        pad_front_clearance = 0.035
+        pad_radius_local = 0.050
+        pad_half_height_local = 0.0015
+        pad_center_local_x = machine_front_local_x + pad_front_clearance + pad_radius_local
+        pad_center_local_y = 0.02375
+        pad_top_local_z = 0.035 + 2.0 * pad_half_height_local
         cup_radius = float(self.cup_size[0])
-        self.coffee_tray_top_z = float(machine_pos[2] + tray_top_local_z * uniform_scale)
+        cup_half_height = float(self.cup_size[1])
+
+        self.coffee_pad_radius = float(pad_radius_local * uniform_scale)
+        self.coffee_pad_center = machine_pos + np.array(
+            [pad_center_local_x, pad_center_local_y, pad_top_local_z]
+        ) * uniform_scale
+        self.coffee_tray_top_z = float(self.coffee_pad_center[2])
+        self.coffee_target_center = self.coffee_pad_center.copy()
+        self.coffee_target_center[2] += cup_half_height + 0.002
+
+        center_tolerance = max(0.0, self.coffee_pad_radius - cup_radius)
         self.coffee_tray_center_x_bounds = np.array(
             [
-                machine_pos[0] + tray_local_x_min * uniform_scale + cup_radius,
-                machine_pos[0] + tray_local_x_max * uniform_scale - cup_radius,
+                self.coffee_pad_center[0] - center_tolerance,
+                self.coffee_pad_center[0] + center_tolerance,
             ],
             dtype=float,
         )
@@ -396,6 +424,80 @@ class SOARM101Lift(Lift):
             ratio = self.cube_mass / current
             self.sim.model.body_mass[self.cube_body_id] *= ratio
             self.sim.model.body_inertia[self.cube_body_id] *= ratio
+
+        model_token = id(self.sim.model)
+        if getattr(self, "_cup_visual_model_token", None) != model_token:
+            self._cup_visual_model_token = model_token
+            self._cup_visual_geom_ids = np.asarray(
+                [self.sim.model.geom_name2id(name) for name in self.cube.visual_geoms],
+                dtype=int,
+            )
+            self._cup_visual_base_rgba = self.sim.model.geom_rgba[
+                self._cup_visual_geom_ids
+            ].copy()
+
+    def _sample_cup_xy_jitter(self, max_radius_m):
+        """Sample a uniform point in a disk while respecting deterministic resets."""
+        max_radius_m = float(max_radius_m)
+        if self.deterministic_reset or max_radius_m <= 0.0:
+            return np.zeros(2, dtype=float)
+        radius = max_radius_m * np.sqrt(self.rng.uniform())
+        angle = self.rng.uniform(0.0, 2.0 * np.pi)
+        return radius * np.array([np.cos(angle), np.sin(angle)], dtype=float)
+
+    def _sample_cup_yaw_jitter_deg(self, max_abs_deg):
+        max_abs_deg = float(max_abs_deg)
+        if self.deterministic_reset or max_abs_deg <= 0.0:
+            return 0.0
+        return float(self.rng.uniform(-max_abs_deg, max_abs_deg))
+
+    def _randomize_cup_visual_color(self, max_fraction):
+        """Apply a subtle RGB tint to cup visual geoms without changing physics."""
+        max_fraction = float(max_fraction)
+        tint = np.ones(3, dtype=float)
+        if not self.deterministic_reset and max_fraction > 0.0:
+            tint = self.rng.uniform(1.0 - max_fraction, 1.0 + max_fraction, size=3)
+
+        rgba = self._cup_visual_base_rgba.copy()
+        rgba[:, :3] = np.clip(rgba[:, :3] * tint, 0.0, 1.0)
+        self.sim.model.geom_rgba[self._cup_visual_geom_ids] = rgba
+
+    def _task_manipulation_arm(self):
+        """Return the arm used by cup tasks on single- and dual-arm robots."""
+        arms = tuple(self.robots[0].arms)
+        return "left" if "left" in arms else arms[0]
+
+    def _task_gripper_tip_pos(self):
+        """Return the physical fingertip-center site, not the adapter origin."""
+        robot = self.robots[0]
+        arm = self._task_manipulation_arm()
+        raw_site_name = f"{arm}_grip_site" if len(robot.arms) > 1 else "grip_site"
+        site_name = robot.robot_model.correct_naming(raw_site_name)
+        return np.array(self.sim.data.get_site_xpos(site_name), dtype=float)
+
+    def _task_gripper_contacts_object(self, object_model):
+        """Check any active-jaw contact instead of the empty SO101 fingerpad groups."""
+        robot = self.robots[0]
+        arm = self._task_manipulation_arm()
+        raw_prefix = f"{arm}_" if len(robot.arms) > 1 else ""
+        geom_prefix = robot.robot_model.correct_naming(raw_prefix)
+        contact_geoms = []
+        for geom_id in range(self.sim.model.ngeom):
+            geom_name = self.sim.model.geom_id2name(geom_id)
+            if geom_name is None or not geom_name.startswith(geom_prefix):
+                continue
+            if (
+                self.sim.model.geom_contype[geom_id] == 0
+                and self.sim.model.geom_conaffinity[geom_id] == 0
+            ):
+                continue
+            local_name = geom_name[len(geom_prefix):]
+            if local_name.startswith(("static_finger", "moving_jaw")):
+                contact_geoms.append(geom_name)
+        return bool(
+            contact_geoms
+            and self.check_contact(contact_geoms, object_model.contact_geoms)
+        )
 
     def _self_supporting_base_xpos(self, desk_arm_xpos):
         """Where to park a robot that arrives on its own chassis (XLeRobot).

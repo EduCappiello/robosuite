@@ -1,5 +1,3 @@
-import xml.etree.ElementTree as ET
-
 import numpy as np
 
 from robosuite.environments.manipulation.soarm101_lift import SOARM101Lift
@@ -42,27 +40,6 @@ class SOARM101PnPCup(SOARM101Lift):
     def _load_model(self):
         super()._load_model()
 
-        center, low, high = self._cup_bay_center_and_bounds()
-        pad_center = center.copy()
-        pad_center[2] = self.coffee_tray_top_z + 0.0015
-        pad_half_size = 0.5 * (high - low)
-        pad_half_size[2] = 0.0015
-
-        # Keep one target marker only: white while active, green after success.
-        ET.SubElement(
-            self.model.worldbody,
-            "geom",
-            {
-                "name": "coffee_success_target_visual",
-                "type": "box",
-                "pos": " ".join(str(float(v)) for v in pad_center),
-                "size": " ".join(str(float(v)) for v in pad_half_size),
-                "rgba": "1 1 1 0.8",
-                "group": "1",
-                "contype": "0",
-                "conaffinity": "0",
-            },
-        )
 
     def _cup_bay_center_and_bounds(self):
         """Return the physically usable cup-center target on the machine tray."""
@@ -88,8 +65,11 @@ class SOARM101PnPCup(SOARM101Lift):
 
     def _cup_in_target(self):
         cup_pos = self._cup_pos()
-        _, low, high = self._cup_bay_center_and_bounds()
-        return bool(np.all(cup_pos >= low) and np.all(cup_pos <= high))
+        center, low, high = self._cup_bay_center_and_bounds()
+        center_tolerance = self.coffee_pad_radius - float(self.cup_size[0])
+        centered_on_pad = np.linalg.norm(cup_pos[:2] - center[:2]) <= center_tolerance
+        at_target_height = low[2] <= cup_pos[2] <= high[2]
+        return bool(centered_on_pad and at_target_height)
 
     def _cup_is_upright(self):
         cup_rotation = np.array(self.sim.data.body_xmat[self.cube_body_id], dtype=float).reshape(3, 3)
@@ -110,10 +90,8 @@ class SOARM101PnPCup(SOARM101Lift):
         return self._cup_exceeds_failure_tilt()
 
     def _update_success_target_visual(self, success):
-        geom_id = self.sim.model.geom_name2id("coffee_success_target_visual")
-        self.sim.model.geom_rgba[geom_id] = (
-            np.array([0.15, 1.0, 0.15, 0.9]) if success else np.array([1.0, 1.0, 1.0, 0.8])
-        )
+        """The physical cup pad remains white before and after success."""
+        del success
 
     def _check_success(self):
         """True once the cup center has stayed inside the coffee bay briefly."""

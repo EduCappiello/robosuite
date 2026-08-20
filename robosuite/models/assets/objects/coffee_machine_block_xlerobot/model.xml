@@ -5,12 +5,14 @@
   <asset>
     <material name="machine_black" rgba="0.02 0.02 0.02 1" shininess="0.15" specular="0.05" />
     <material name="machine_back" rgba="0.03 0.03 0.03 1" shininess="0.10" specular="0.03" />
+    <material name="bay_liner_gray" rgba="0.32 0.34 0.35 1" shininess="0.05" specular="0.03" />
     <material name="brew_head" rgba="0.10 0.10 0.10 1" shininess="0.20" specular="0.10" />
     <material name="front_panel" rgba="0.65 0.62 0.56 1" shininess="0.20" specular="0.12" />
     <material name="water_tank" rgba="0.65 0.75 0.78 0.35" shininess="0.30" specular="0.15" />
     <material name="control_panel" rgba="0.035 0.035 0.035 1" shininess="0.08" specular="0.03" />
     <material name="button_ring" rgba="0.48 0.48 0.46 1" shininess="0.25" specular="0.18" />
     <material name="button_face" rgba="0.09 0.09 0.09 1" shininess="0.12" specular="0.06" />
+    <material name="cup_pad_white" rgba="1 1 1 1" shininess="0.02" specular="0.02" />
   </asset>
   <default>
     <default class="visual">
@@ -36,6 +38,21 @@
       <body name="object">
         <geom class="visual" name="base_visual" pos="0 0 0.0175" size="0.1385 0.1225 0.0175" material="machine_black" />
         <geom class="collision" name="base" pos="0 0 0.0175" size="0.1385 0.1225 0.0175" />
+        <!-- 10 cm cup pad. Its front edge is 3.5 cm behind the machine front.
+             Local y=0.02375 centers it between the bay edges (-0.075, 0.1225). -->
+        <geom class="visual" name="cup_pad_visual" type="cylinder" pos="-0.0535 0.02375 0.0365" size="0.05 0.0015" material="cup_pad_white" />
+        <geom class="collision" name="cup_pad_collision" type="cylinder" pos="-0.0535 0.02375 0.0365" size="0.05 0.0015"
+              friction="1.2 0.02 0.001" />
+        <!-- Matte gray visual liners make the open cup bay boundary readable.
+             They sit just inside the existing collision shell and do not collide. -->
+        <geom class="visual" name="bay_floor_liner_visual" pos="-0.0175 0.02375 0.0356"
+              size="0.1200 0.09875 0.0004" material="bay_liner_gray" />
+        <geom class="visual" name="bay_right_liner_visual" pos="-0.0175 -0.0744 0.0900"
+              size="0.1200 0.0004 0.0550" material="bay_liner_gray" />
+        <geom class="visual" name="bay_back_liner_visual" pos="0.1029 0.02375 0.0900"
+              size="0.0004 0.09875 0.0550" material="bay_liner_gray" />
+        <geom class="visual" name="bay_ceiling_liner_visual" pos="-0.0175 0.02375 0.1444"
+              size="0.1200 0.09875 0.0004" material="bay_liner_gray" />
         <!-- The +Y wall starts above the bay so the front-left side is open. -->
         <geom class="visual" name="left_upper_wall_visual" pos="0 0.09875 0.2895" size="0.1385 0.02375 0.1445" material="machine_black" />
         <geom class="collision" name="left_upper_wall" pos="0 0.09875 0.2895" size="0.1385 0.02375 0.1445" />

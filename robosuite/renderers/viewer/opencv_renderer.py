@@ -17,6 +17,7 @@ class OpenCVViewer:
         self.set_camera(camera_id=0)
         self._window_name = "offscreen render"
         self._has_window = False
+        self._window_size = None
         self.keypress_callback = None
 
     def set_camera(self, camera_id=None, camera_name=None, width=None, height=None):
@@ -57,6 +58,11 @@ class OpenCVViewer:
 
         # write frame to window
         im = np.flip(im, axis=0)
+        window_size = (int(im.shape[1]), int(im.shape[0]))
+        if (not self._has_window) or (self._window_size != window_size):
+            cv2.namedWindow(self._window_name, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
+            cv2.resizeWindow(self._window_name, *window_size)
+            self._window_size = window_size
         cv2.imshow(self._window_name, im)
         if (platform.system() != "Darwin") and (not self._has_window):
             # move window to top left of screen, and ensure we only move window on creation

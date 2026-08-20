@@ -7,12 +7,14 @@ import mujoco
 import numpy as np
 
 import robosuite as suite
+from robosuite.environments.manipulation.cup_pnp_task1 import cupPnP_task1
 from robosuite.environments.manipulation.cup_pnp_task2 import (
     BREW_BUTTON,
     BUTTON_NAMES,
     TOUCH_STYLUS_PARENT_BODY,
     TOUCH_STYLUS_SHAFT_FROMTO,
     TOUCH_STYLUS_TIP_POS,
+    TOUCH_STYLUS_XLEROBOT_RIGHT_PARENT_BODY,
     add_task2_robot_pedestal,
     add_task2_touch_stylus,
     classify_button_contacts,
@@ -142,6 +144,7 @@ def test_task2_reads_only_stylus_tip_button_contact_pairs():
 
 def test_task2_robot_is_shifted_30_cm_to_robot_right():
     signature = inspect.signature(cupPnP_task2)
+    assert np.isclose(signature.parameters["no_touch_timeout_s"].default, 60.0)
     default_offset = signature.parameters["robot_on_cart_offset"].default
     assert np.allclose(default_offset, [-0.07, -0.20, 0.0])
 
@@ -149,6 +152,29 @@ def test_task2_robot_is_shifted_30_cm_to_robot_right():
     pedestal_size = signature.parameters["robot_pedestal_full_size"].default
     assert np.isclose(cart_top_height, 0.72)
     assert np.isclose(cart_top_height + pedestal_size[2], 0.77)
+    assert np.isclose(signature.parameters["main_table_top_height"].default, 0.82)
+
+    coffee_offset = signature.parameters["coffee_machine_offset"].default
+    assert np.allclose(coffee_offset, [-0.1965, 0.0, 0.0])
+    machine_front_x = coffee_offset[0] - 0.277 / 2.0
+    robot_support_front_x = -0.8 / 2.0 - signature.parameters["cart_gap"].default
+    assert np.isclose(machine_front_x - robot_support_front_x, 0.075)
+
+
+def test_task2_xlerobot_layout_matches_task1(monkeypatch):
+    monkeypatch.setattr(
+        SOARM101Lift,
+        "__init__",
+        lambda self, *args, **kwargs: None,
+    )
+
+    task1 = cupPnP_task1(robots=["XLeRobot"])
+    task2 = cupPnP_task2(robots=["XLeRobot"])
+
+    assert task2._xlerobot_layout
+    assert np.allclose(task2.cart_top, task1.cart_top)
+    assert np.allclose(task2.robot_base_pos, task1.robot_base_pos)
+    assert task2.stylus_parent_body == "robot0_right_gripper"
 
 
 def test_task2_pedestal_raises_robot_to_original_height():
@@ -190,4 +216,25 @@ def test_task2_stylus_is_attached_to_fixed_right_jaw_and_protrudes():
     tip_front_z = TOUCH_STYLUS_TIP_POS[2] - 0.006
     assert TOUCH_STYLUS_SHAFT_FROMTO[5] < fixed_jaw_front_z
     assert TOUCH_STYLUS_TIP_POS[2] < TOUCH_STYLUS_SHAFT_FROMTO[5]
-    assert np.isclose(fixed_jaw_front_z - tip_front_z, 0.02135, atol=0.002)
+    assert np.isclose(fixed_jaw_front_z - tip_front_z, 0.026)
+
+
+def test_task2_xlerobot_right_stylus_matches_single_arm_stylus_exactly():
+    single_worldbody = ET.Element("worldbody")
+    ET.SubElement(single_worldbody, "body", {"name": TOUCH_STYLUS_PARENT_BODY})
+    single_stylus = add_task2_touch_stylus(single_worldbody)
+
+    xlerobot_worldbody = ET.Element("worldbody")
+    right_gripper = ET.SubElement(
+        xlerobot_worldbody,
+        "body",
+        {"name": TOUCH_STYLUS_XLEROBOT_RIGHT_PARENT_BODY},
+    )
+    ET.SubElement(xlerobot_worldbody, "body", {"name": "robot0_left_gripper"})
+    xlerobot_stylus = add_task2_touch_stylus(
+        xlerobot_worldbody,
+        TOUCH_STYLUS_XLEROBOT_RIGHT_PARENT_BODY,
+    )
+
+    assert xlerobot_stylus in list(right_gripper)
+    assert ET.tostring(xlerobot_stylus) == ET.tostring(single_stylus)

@@ -11,6 +11,7 @@ from .null_mount import NullMount
 
 from .omron_mobile_base import OmronMobileBase
 from .null_mobile_base import NullMobileBase
+from .locked_null_mobile_base import LockedNullMobileBase
 from .no_actuation_base import NoActuationBase
 from .floating_legged_base import FloatingLeggedBase
 from .null_base import NullBase
@@ -22,6 +23,7 @@ BASE_MAPPING = {
     "NullMount": NullMount,
     "OmronMobileBase": OmronMobileBase,
     "NullMobileBase": NullMobileBase,
+    "LockedNullMobileBase": LockedNullMobileBase,
     "NoActuationBase": NoActuationBase,
     "FloatingLeggedBase": FloatingLeggedBase,
     "Spot": Spot,

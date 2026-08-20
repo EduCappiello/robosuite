@@ -254,3 +254,254 @@ def test_xlerobot_env_action_dim_sensors_and_steps():
         assert np.isfinite(np.asarray(env.sim.data.qvel)).all()
     finally:
         env.close()
+
+
+def test_pnp_xlerobot_base_resists_external_force():
+    import mujoco
+
+    env = suite.make(
+        env_name="cupPnP_task1",
+        robots=["XLeRobot"],
+        has_renderer=False,
+        has_offscreen_renderer=False,
+        use_camera_obs=False,
+        hard_reset=False,
+        control_freq=20,
+    )
+    try:
+        env.reset()
+        assert type(env.robots[0].robot_model.base).__name__ == "LockedNullMobileBase"
+        assert env.action_dim == 17
+
+        model = env.sim.model._model
+        data = env.sim.data._data
+        qpos_adr = []
+        qvel_adr = []
+        for name in env.robots[0].robot_model.base_joints:
+            joint_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, name)
+            qpos_adr.append(model.jnt_qposadr[joint_id])
+            qvel_adr.append(model.jnt_dofadr[joint_id])
+
+        support_id = mujoco.mj_name2id(
+            model, mujoco.mjtObj.mjOBJ_BODY, "mobilebase0_support"
+        )
+        qpos_before = data.qpos[qpos_adr].copy()
+        xpos_before = data.xpos[support_id].copy()
+        xmat_before = data.xmat[support_id].copy()
+
+        # Much larger than normal arm/table contact: the cart should still stay parked.
+        data.xfrc_applied[support_id] = [1000.0, -800.0, 0.0, 0.0, 0.0, 500.0]
+        action = env.robots[0].create_action_vector(
+            {"base": np.array([1.0, -1.0, 1.0])}
+        )
+        for _ in range(50):
+            env.step(action)
+
+        assert np.allclose(data.qpos[qpos_adr], qpos_before, atol=1e-5)
+        assert np.allclose(data.qvel[qvel_adr], 0.0, atol=1e-8)
+        assert np.allclose(data.xpos[support_id], xpos_before, atol=1e-5)
+        assert np.allclose(data.xmat[support_id], xmat_before, atol=1e-5)
+    finally:
+        env.close()
+
+def test_task5_xlerobot_cup_starts_on_blind_holder_floor():
+    from robosuite.environments.manipulation.cup_pnp_task5 import cupPnP_task5
+    from robosuite.environments.manipulation.soarm101_lift import (
+        XLEROBOT_CUP_HOLDER_CENTER,
+        XLEROBOT_CUP_HOLDER_HALF_SIZE,
+        XLEROBOT_CUP_HOLDER_SUPPORT_Z,
+    )
+
+    holder = ET.parse(XLEROBOT_XML).getroot().find(
+        ".//geom[@name='cup_foam_place_bottom']"
+    )
+    holder_pos = _farr(holder, "pos")
+    holder_size = _farr(holder, "size")
+    assert np.allclose(XLEROBOT_CUP_HOLDER_CENTER[:2], holder_pos[:2])
+    assert np.allclose(XLEROBOT_CUP_HOLDER_HALF_SIZE, holder_size[:2])
+    assert np.isclose(XLEROBOT_CUP_HOLDER_SUPPORT_Z, holder_pos[2] + holder_size[2])
+
+    root = ET.parse(XLEROBOT_XML).getroot()
+    foam_geoms = [
+        geom
+        for geom in root.findall(".//geom")
+        if geom.get("name", "").startswith("cup_foam_")
+        and geom.get("name") != "cup_foam_place_bottom"
+    ]
+    assert foam_geoms
+    for geom in foam_geoms:
+        pos = _farr(geom, "pos")
+        size = _farr(geom, "size")
+        assert np.isclose(pos[2] + size[2], 0.775)
+
+    task = cupPnP_task5.__new__(cupPnP_task5)
+    task.robot_is_self_supporting = True
+    task.robot_world_base_pos = np.array([-0.64, 0.02, 0.0])
+    task._layout_rot_z = np.array(
+        [[0.0, 1.0, 0.0], [-1.0, 0.0, 0.0], [0.0, 0.0, 1.0]]
+    )
+    task.cup_size = np.array([0.03, 0.05])
+
+    start = task._cart_start_pos()
+    expected_xy = (
+        task.robot_world_base_pos + task._layout_rot_z @ XLEROBOT_CUP_HOLDER_CENTER
+    )[:2]
+    assert np.allclose(start[:2], expected_xy)
+    assert np.isclose(start[2], XLEROBOT_CUP_HOLDER_SUPPORT_Z + 0.05 + 0.002)
+
+
+def test_task3_xlerobot_success_uses_blind_holder_not_legacy_cart_top():
+    from robosuite.environments.manipulation.cup_pnp_task3 import cupPnP_task3
+    from robosuite.environments.manipulation.soarm101_lift import (
+        XLEROBOT_CUP_HOLDER_CENTER,
+        XLEROBOT_CUP_HOLDER_SUPPORT_Z,
+    )
+
+    task = cupPnP_task3.__new__(cupPnP_task3)
+    task.robot_is_self_supporting = True
+    task.robot_world_base_pos = np.array([-0.606, 0.02, 0.0])
+    task.robot_support_table_yaw = np.deg2rad(30.0)
+    task.cart_top = np.array([-0.585, 0.0, 0.770])
+    task.cup_size = np.array([0.030, 0.050])
+    task.holder_center_tolerance_m = 0.012
+
+    yaw = task.robot_support_table_yaw
+    rot_z = np.array(
+        [
+            [np.cos(yaw), -np.sin(yaw), 0.0],
+            [np.sin(yaw), np.cos(yaw), 0.0],
+            [0.0, 0.0, 1.0],
+        ]
+    )
+    holder_center = task.robot_world_base_pos + rot_z @ XLEROBOT_CUP_HOLDER_CENTER
+    cup_pos = holder_center.copy()
+    cup_pos[2] = XLEROBOT_CUP_HOLDER_SUPPORT_Z + task.cup_size[1]
+    task._cup_pos = lambda: cup_pos
+
+    target = task._cart_target_pos()
+    assert np.allclose(target[:2], holder_center[:2])
+    assert np.isclose(target[2], cup_pos[2] + 0.002)
+    assert task._cup_on_cart()
+    assert type(task._cup_on_cart()) is bool
+
+    # A visually inserted cup can settle slightly off-center in the collision
+    # geometry and should still count as being in this specific holder.
+    cup_pos[:] = holder_center + rot_z @ np.array([0.009, 0.0, 0.0])
+    cup_pos[2] = XLEROBOT_CUP_HOLDER_SUPPORT_Z + task.cup_size[1]
+    assert task._cup_on_cart()
+
+    cup_pos[:] = holder_center + rot_z @ np.array([0.0115, 0.0, 0.0])
+    cup_pos[2] = XLEROBOT_CUP_HOLDER_SUPPORT_Z + task.cup_size[1]
+    assert task._cup_on_cart()
+
+    # The obsolete task-3 gate used z=0.770. A cup on the holder rim at that
+    # height is not inserted into the blind slot and must not count as success.
+    cup_pos[2] = task.cart_top[2] + task.cup_size[1]
+    assert not task._cup_on_cart()
+
+    # Nor should an upright cup elsewhere on the cart count as being in the slot.
+    cup_pos[:] = holder_center + rot_z @ np.array([0.020, 0.0, 0.0])
+    cup_pos[2] = XLEROBOT_CUP_HOLDER_SUPPORT_Z + task.cup_size[1]
+    assert not task._cup_on_cart()
+
+
+def test_task3_xlerobot_env_accepts_cup_on_blind_holder_floor():
+    env = suite.make(
+        env_name="cupPnP_task3",
+        robots=["XLeRobot"],
+        has_renderer=False,
+        has_offscreen_renderer=False,
+        use_camera_obs=False,
+        hard_reset=False,
+    )
+    try:
+        env.reset()
+        assert env.robot_is_self_supporting
+
+        placed_pos = env._cart_target_pos()
+        placed_pos[2] -= 0.002
+        env.sim.data.set_joint_qpos(
+            env.cube.joints[0],
+            np.concatenate([placed_pos, np.array([1.0, 0.0, 0.0, 0.0])]),
+        )
+        env.sim.data.set_joint_qvel(env.cube.joints[0], np.zeros(6))
+        env.sim.forward()
+        assert env._cup_on_cart()
+
+        placed_pos[2] = env.cart_top[2] + float(env.cup_size[1])
+        env.sim.data.set_joint_qpos(
+            env.cube.joints[0],
+            np.concatenate([placed_pos, np.array([1.0, 0.0, 0.0, 0.0])]),
+        )
+        env.sim.forward()
+        assert not env._cup_on_cart()
+    finally:
+        env.close()
+
+
+def test_task5_xlerobot_faces_table_with_one_cm_white_tray_gap():
+    import mujoco
+
+    env = suite.make(
+        env_name="cupPnP_task5",
+        robots=["XLeRobot"],
+        has_renderer=False,
+        has_offscreen_renderer=False,
+        use_camera_obs=False,
+        hard_reset=False,
+    )
+    try:
+        env.reset()
+        assert np.isclose(env.layout_yaw_rad, 0.0)
+
+        model = env.sim.model._model
+        data = env.sim.data._data
+        geom_id = mujoco.mj_name2id(
+            model, mujoco.mjtObj.mjOBJ_GEOM, "robot0_cart_body_vis"
+        )
+        mesh_id = model.geom_dataid[geom_id]
+        first = model.mesh_vertadr[mesh_id]
+        last = first + model.mesh_vertnum[mesh_id]
+        vertices = model.mesh_vert[first:last]
+        rotation = data.geom_xmat[geom_id].reshape(3, 3)
+        world_vertices = vertices @ rotation.T + data.geom_xpos[geom_id]
+
+        white_tray_front_x = float(np.max(world_vertices[:, 0]))
+        table_near_x = float(env.table_offset[0] - env.table_full_size[0] / 2.0)
+        gap = table_near_x - white_tray_front_x
+        assert np.isclose(gap, 0.01, atol=0.003)
+
+        robot_to_table = np.asarray(env.table_offset[:2]) - np.asarray(
+            env.robot_world_base_pos[:2]
+        )
+        robot_forward = np.array(
+            [np.cos(env.layout_yaw_rad), np.sin(env.layout_yaw_rad)]
+        )
+        assert np.dot(robot_forward, robot_to_table) > 0.0
+    finally:
+        env.close()
+
+def test_task1_xlerobot_reset_uses_calibrated_head_pose(monkeypatch):
+    from unittest.mock import MagicMock
+    from robosuite.environments.manipulation.cup_pnp_task1 import cupPnP_task1
+    from robosuite.environments.manipulation.soarm101_lift import SOARM101Lift
+
+    monkeypatch.setattr(SOARM101Lift, "_reset_internal", lambda self: None)
+    task = cupPnP_task1.__new__(cupPnP_task1)
+    task.robot_is_self_supporting = True
+    task.head_start_pan_deg = 8.0
+    task.head_start_tilt_deg = 32.0
+    task.sim = MagicMock()
+    task._reset_cup_to_table_start = lambda: None
+    task.cup_color_randomization = 0.0
+    task._randomize_cup_visual_color = lambda amount: None
+    task._update_success_target_visual = lambda success: None
+
+    task._reset_internal()
+    qpos = {
+        call.args[0]: call.args[1]
+        for call in task.sim.data.set_joint_qpos.call_args_list
+    }
+    assert np.isclose(np.degrees(qpos["robot0_head_pan"]), 8.0)
+    assert np.isclose(np.degrees(qpos["robot0_head_tilt"]), 32.0)
+    task.sim.forward.assert_called_once_with()

@@ -19,8 +19,6 @@ ASSET_ROOT = Path(__file__).resolve().parents[2] / "robosuite" / "models" / "ass
 @pytest.mark.parametrize(
     ("env_name", "geom_names", "reset_color"),
     [
-        ("SOARM101PnPCup", ("coffee_success_target_visual",), [1.0, 1.0, 1.0, 0.8]),
-        ("cupPnP_task1", ("coffee_success_target_visual",), [1.0, 1.0, 1.0, 0.8]),
         ("cupPnP_task3", ("target_x_a", "target_x_b"), [0.05, 0.2, 0.85, 1.0]),
         ("cupPnP_task5", ("target_x_a", "target_x_b"), [0.05, 0.2, 0.85, 1.0]),
     ],
@@ -55,6 +53,128 @@ def test_pnp_success_visual_resets_between_episodes(env_name, geom_names, reset_
             assert np.allclose(env.sim.model.geom_rgba[geom_id], reset_color)
     finally:
         env.close()
+
+
+def test_coffee_machine_has_ten_cm_white_pad_with_requested_front_clearance():
+    asset = (
+        ASSET_ROOT
+        / "objects"
+        / "coffee_machine_block_xlerobot"
+        / "model.xml"
+    )
+    root = ET.parse(asset).getroot()
+    visual = root.find(".//geom[@name='cup_pad_visual']")
+    collision = root.find(".//geom[@name='cup_pad_collision']")
+
+    assert visual is not None
+    assert collision is not None
+    assert visual.get("type") == "cylinder"
+    assert collision.get("type") == "cylinder"
+    assert np.allclose(np.fromstring(visual.get("size"), sep=" "), [0.05, 0.0015])
+    assert np.allclose(
+        np.fromstring(collision.get("size"), sep=" "),
+        [0.05, 0.0015],
+    )
+
+    visual_pos = np.fromstring(visual.get("pos"), sep=" ")
+    collision_pos = np.fromstring(collision.get("pos"), sep=" ")
+    assert np.allclose(visual_pos, collision_pos)
+    bay_low_y, bay_high_y = -0.075, 0.1225
+    left_clearance = visual_pos[1] - 0.05 - bay_low_y
+    right_clearance = bay_high_y - visual_pos[1] - 0.05
+    assert np.isclose(left_clearance, right_clearance)
+    assert np.isclose(left_clearance, 0.04875)
+
+    pad_center_x = visual_pos[0]
+    machine_front_x = -0.277 / 2.0
+    pad_front_edge_x = pad_center_x - 0.05
+    assert np.isclose(pad_front_edge_x - machine_front_x, 0.035)
+
+
+def test_coffee_machine_bay_has_noncolliding_gray_visual_liners():
+    asset = ASSET_ROOT / "objects" / "coffee_machine_block_xlerobot" / "model.xml"
+    root = ET.parse(asset).getroot()
+    material = root.find(".//material[@name='bay_liner_gray']")
+
+    assert material is not None
+    assert np.allclose(
+        np.fromstring(material.get("rgba"), sep=" "),
+        [0.32, 0.34, 0.35, 1.0],
+    )
+
+    liner_names = (
+        "bay_floor_liner_visual",
+        "bay_right_liner_visual",
+        "bay_back_liner_visual",
+        "bay_ceiling_liner_visual",
+    )
+    for name in liner_names:
+        geom = root.find(f".//geom[@name='{name}']")
+        assert geom is not None
+        assert geom.get("class") == "visual"
+        assert geom.get("material") == "bay_liner_gray"
+
+@pytest.mark.parametrize("task_cls", [SOARM101PnPCup, cupPnP_task1])
+def test_coffee_pad_stays_white_after_success(task_cls):
+    task = task_cls.__new__(task_cls)
+    task._update_success_target_visual(True)
+
+    asset = ASSET_ROOT / "objects" / "coffee_machine_block_xlerobot" / "model.xml"
+    root = ET.parse(asset).getroot()
+    material = root.find(".//material[@name='cup_pad_white']")
+    assert material is not None
+    assert np.allclose(np.fromstring(material.get("rgba"), sep=" "), [1.0, 1.0, 1.0, 1.0])
+
+
+def test_task1_success_requires_cup_center_on_round_pad():
+    task = cupPnP_task1.__new__(cupPnP_task1)
+    task.coffee_pad_radius = 0.05
+    task.cup_size = (0.03, 0.05)
+    task.target_center_margin_m = 0.005
+    center = np.array([0.1, -0.2, 0.9])
+    low = center - np.array([0.02, 0.02, 0.015])
+    high = center + np.array([0.02, 0.02, 0.015])
+    cup_pos = center.copy()
+    task._cup_bay_center_and_bounds = lambda: (center, low, high)
+    task._cup_pos = lambda: cup_pos
+
+    assert task._cup_in_target()
+    cup_pos[1] += 0.026
+    assert not task._cup_in_target()
+
+
+@pytest.mark.parametrize(
+    ("task_cls", "position_gate", "visual_update"),
+    [
+        (cupPnP_task1, "_cup_in_target", "_update_success_target_visual"),
+        (cupPnP_task3, "_cup_on_cart", "_update_target_visual"),
+        (cupPnP_task5, "_cup_on_main_table", "_update_target_visual"),
+    ],
+)
+def test_pnp_success_requires_release_and_clear_but_not_velocity(
+    task_cls,
+    position_gate,
+    visual_update,
+):
+    task = task_cls.__new__(task_cls)
+    task._success_counter = 0
+    task.success_hold_steps = 2
+    setattr(task, position_gate, lambda: True)
+    setattr(task, visual_update, lambda success: None)
+    task._cup_is_upright = lambda: True
+    task._cup_is_released = lambda: True
+    task._gripper_is_clear = lambda: True
+    task._cup_is_stable = lambda: False
+
+    assert not task._check_success()
+    assert task._check_success()
+
+    for blocking_gate in ("_cup_is_released", "_gripper_is_clear"):
+        task._success_counter = 1
+        setattr(task, blocking_gate, lambda: False)
+        assert not task._check_success()
+        assert task._success_counter == 0
+        setattr(task, blocking_gate, lambda: True)
 
 
 def test_soarm101_robot_loads():
@@ -234,7 +354,7 @@ def test_cup_pnp_task1_mounts_robot_on_cart_sized_support():
         assert np.isclose(env.sim.model.body_mass[env.cube_body_id], 0.015)
         assert np.allclose(env.cart_full_size, [0.35, 0.45, 0.04])
         assert np.isclose(env.cart_top[2], 0.77)
-        assert np.isclose(env.table_offset[2], 0.865)
+        assert np.isclose(env.table_offset[2], 0.82)
         assert np.isclose(env.cart_top[0] + env.cart_full_size[0] / 2.0, -0.41)
         assert np.isclose(-env.table_full_size[0] / 2.0, -0.40)
 
@@ -245,14 +365,19 @@ def test_cup_pnp_task1_mounts_robot_on_cart_sized_support():
         expected_robot_pos = env.cart_top + np.array([-0.07, 0.10, 0.0])
         assert np.allclose(env.sim.data.body_xpos[root_body_id], expected_robot_pos)
 
-        assert np.allclose(env.coffee_machine_offset, [-0.19, 0.0, 0.0])
-        assert np.allclose(env.cup_start_offset, [-0.37, 0.22, 0.0])
-        assert np.allclose(env._cup_pos()[:2], [-0.37, 0.22])
+        assert np.allclose(env.coffee_machine_offset, [-0.1965, 0.0, 0.0])
+        table_front_x = -env.table_full_size[0] / 2.0
+        machine_front_x = env.coffee_machine_offset[0] - env.coffee_machine_size[1] / 2.0
+        assert np.isclose(machine_front_x - table_front_x, 0.065)
+
+        assert np.allclose(env.cup_start_offset, [-0.29, 0.22, 0.0])
+        assert np.linalg.norm(env._cup_pos()[:2] - env.cup_start_offset[:2]) <= 0.010
+        assert env._cup_is_upright()
     finally:
         env.close()
 
 
-def test_cup_pnp_task1_reuses_all_pnp_task_logic_and_sensors():
+def test_cup_pnp_task1_reuses_all_pnp_task_logic_and_sensors(monkeypatch):
     assert cupPnP_task1.__bases__ == (SOARM101Lift,)
     assert not issubclass(cupPnP_task1, SOARM101PnPCup)
 
@@ -312,6 +437,25 @@ def test_cup_pnp_task1_reuses_all_pnp_task_logic_and_sensors():
                 np.concatenate([center, np.array([1.0, 0.0, 0.0, 0.0])]),
             )
             task.sim.forward()
+            if task is positioned:
+                assert task._cup_is_released()
+                assert task._gripper_is_clear()
+
+                with monkeypatch.context() as patch:
+                    patch.setattr(
+                        task,
+                        "_task_gripper_contacts_object",
+                        lambda object_model: True,
+                    )
+                    assert not task._cup_is_released()
+                    assert not task._check_success()
+
+                original_clearance = task.gripper_clearance_m
+                task.gripper_clearance_m = 10.0
+                assert not task._gripper_is_clear()
+                assert not task._check_success()
+                task.gripper_clearance_m = original_clearance
+
             for _ in range(task.success_hold_steps):
                 success = task._check_success()
             assert success
@@ -342,9 +486,16 @@ def test_cup_pnp_task3_starts_in_machine_and_targets_support_table(monkeypatch):
         assert isinstance(env, cupPnP_task3)
         assert env.cup_model_path == "objects/coffee_cup_3_water/model.xml"
         assert np.isclose(env.sim.model.body_mass[env.cube_body_id], 0.215)
+        assert np.isclose(env.table_offset[2], 0.82)
+        assert np.allclose(env.coffee_machine_offset, [-0.1965, 0.0, 0.0])
+        table_front_x = -env.table_full_size[0] / 2.0
+        machine_front_x = env.coffee_machine_offset[0] - env.coffee_machine_size[1] / 2.0
+        assert np.isclose(machine_front_x - table_front_x, 0.065)
 
         coffee_start, _, _ = env._cup_bay_center_and_bounds()
-        assert np.allclose(env._cup_pos(), coffee_start)
+        assert np.linalg.norm(env._cup_pos()[:2] - coffee_start[:2]) <= 0.008
+        assert np.isclose(env._cup_pos()[2], coffee_start[2])
+        assert env._cup_is_upright()
 
         marker_pos = env._cart_target_pos()
         marker_pos[2] = env.cart_top[2] + 0.0015
@@ -385,7 +536,11 @@ def test_cup_pnp_task3_starts_in_machine_and_targets_support_table(monkeypatch):
         assert env._cup_is_stable()
 
         with monkeypatch.context() as patch:
-            patch.setattr(env, "_check_grasp", lambda **kwargs: True)
+            patch.setattr(
+                env,
+                "_task_gripper_contacts_object",
+                lambda object_model: True,
+            )
             assert not env._cup_is_released()
 
         original_clearance = env.gripper_clearance_m
@@ -399,7 +554,7 @@ def test_cup_pnp_task3_starts_in_machine_and_targets_support_table(monkeypatch):
 
         env.sim.data.set_joint_qvel(env.cube.joints[0], np.zeros(6))
         env.sim.forward()
-        for gate in ("_cup_is_released", "_gripper_is_clear", "_cup_is_stable"):
+        for gate in ("_cup_is_released", "_gripper_is_clear"):
             env._success_counter = 1
             with monkeypatch.context() as patch:
                 patch.setattr(env, gate, lambda: False)
@@ -426,7 +581,7 @@ def test_cup_pnp_task5_rotated_cart_start_and_main_table_success(monkeypatch):
     try:
         env.reset()
         assert isinstance(env, cupPnP_task5)
-        assert np.isclose(env.table_offset[2], 0.80)
+        assert np.isclose(env.table_offset[2], 0.74)
         assert np.isclose(env.cart_top[2], 0.77)
         assert np.isclose(env.layout_yaw_rad, 3.0 * np.pi / 2.0)
         assert np.isclose(env.sim.model.body_mass[env.cube_body_id], 0.215)
@@ -457,7 +612,9 @@ def test_cup_pnp_task5_rotated_cart_start_and_main_table_success(monkeypatch):
         assert np.allclose(env.sim.data.body_xpos[robot_body_id], expected_robot_pos)
 
         start_pos = env._cart_start_pos()
-        assert np.allclose(env._cup_pos(), start_pos)
+        assert np.linalg.norm(env._cup_pos()[:2] - start_pos[:2]) <= 0.0015
+        assert np.isclose(env._cup_pos()[2], start_pos[2])
+        assert env._cup_is_upright()
         marker_pos = start_pos.copy()
         marker_pos[2] = env.cart_top[2] + 0.0015
         for geom_name in ("target_x_a", "target_x_b"):
@@ -478,7 +635,11 @@ def test_cup_pnp_task5_rotated_cart_start_and_main_table_success(monkeypatch):
         assert env._cup_is_stable()
 
         with monkeypatch.context() as patch:
-            patch.setattr(env, "_check_grasp", lambda **kwargs: True)
+            patch.setattr(
+                env,
+                "_task_gripper_contacts_object",
+                lambda object_model: True,
+            )
             assert not env._cup_is_released()
             assert not env._check_success()
 
@@ -491,11 +652,10 @@ def test_cup_pnp_task5_rotated_cart_start_and_main_table_success(monkeypatch):
         env.sim.data.set_joint_qvel(env.cube.joints[0], np.array([0.1, 0.0, 0.0, 0.0, 0.0, 0.0]))
         env.sim.forward()
         assert not env._cup_is_stable()
-        assert not env._check_success()
 
         env.sim.data.set_joint_qvel(env.cube.joints[0], np.zeros(6))
         env.sim.forward()
-        for gate in ("_cup_is_released", "_gripper_is_clear", "_cup_is_stable"):
+        for gate in ("_cup_is_released", "_gripper_is_clear"):
             env._success_counter = 1
             with monkeypatch.context() as patch:
                 patch.setattr(env, gate, lambda: False)

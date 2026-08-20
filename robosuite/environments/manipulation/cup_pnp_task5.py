@@ -1,6 +1,10 @@
 import numpy as np
 
-from robosuite.environments.manipulation.soarm101_lift import SOARM101Lift
+from robosuite.environments.manipulation.soarm101_lift import (
+    SOARM101Lift,
+    XLEROBOT_CUP_HOLDER_CENTER,
+    XLEROBOT_CUP_HOLDER_SUPPORT_Z,
+)
 from robosuite.utils.observables import Observable, sensor
 from robosuite.utils.transform_utils import convert_quat, quat_multiply
 
@@ -12,9 +16,13 @@ class cupPnP_task5(SOARM101Lift):
         self,
         *args,
         cup_start_yaw_deg=0.0,
+        cup_position_randomization_m=0.0015,
+        cup_yaw_randomization_deg=5.0,
+        cup_color_randomization=0.03,
         cart_start_offset=(0.11, -0.16, 0.0),
         main_table_target_offset=(-0.30, 0.0, 0.0),
         layout_yaw_deg=270.0,
+        xlerobot_layout_yaw_deg=0.0,
         success_hold_steps=3,
         cup_max_tilt_deg=45.0,
         cup_failure_tilt_deg=80.0,
@@ -23,7 +31,7 @@ class cupPnP_task5(SOARM101Lift):
         cup_angular_speed_limit=0.35,
         cart_full_size=(0.35, 0.45, 0.04),
         cart_top_height=0.77,
-        main_table_top_height=0.80,
+        main_table_top_height=0.74,
         cart_gap=0.01,
         robot_on_cart_offset=(-0.07, 0.10, 0.0),
         head_camera_robot_offset=(-0.402, -0.250, 0.46065),
@@ -31,9 +39,21 @@ class cupPnP_task5(SOARM101Lift):
         **kwargs,
     ):
         self.cup_start_yaw_deg = float(cup_start_yaw_deg)
+        self.cup_position_randomization_m = float(cup_position_randomization_m)
+        self.cup_yaw_randomization_deg = float(cup_yaw_randomization_deg)
+        self.cup_color_randomization = float(cup_color_randomization)
         self.cart_start_offset = np.array(cart_start_offset, dtype=float)
         self.main_table_target_offset = np.array(main_table_target_offset, dtype=float)
-        self.layout_yaw_rad = np.deg2rad(float(layout_yaw_deg))
+        requested_robots = kwargs.get("robots", args[0] if args else ("SOARM101",))
+        robot_names = (
+            [requested_robots]
+            if isinstance(requested_robots, str)
+            else list(requested_robots)
+        )
+        effective_layout_yaw_deg = (
+            xlerobot_layout_yaw_deg if "XLeRobot" in robot_names else layout_yaw_deg
+        )
+        self.layout_yaw_rad = np.deg2rad(float(effective_layout_yaw_deg))
         self.success_hold_steps = int(success_hold_steps)
         self.cup_max_tilt_deg = float(cup_max_tilt_deg)
         self.cup_failure_tilt_deg = float(cup_failure_tilt_deg)
@@ -96,16 +116,21 @@ class cupPnP_task5(SOARM101Lift):
             rotated_quat_wxyz = convert_quat(rotated_quat_xyzw, to="wxyz")
             camera.set("quat", " ".join(str(float(v)) for v in rotated_quat_wxyz))
 
-        marker_pos = self._cart_start_pos()
-        marker_pos[2] = self.cart_top[2] + 0.0015
-        marker_pos_text = " ".join(str(float(v)) for v in marker_pos)
-        for geom_name in ("target_x_a", "target_x_b"):
-            marker = self.model.worldbody.find(f".//geom[@name='{geom_name}']")
-            if marker is None:
-                raise ValueError(f"Missing expected target marker: {geom_name}")
-            marker.set("pos", marker_pos_text)
+        if not self.robot_is_self_supporting:
+            marker_pos = self._cart_start_pos()
+            marker_pos[2] = self.cart_top[2] + 0.0015
+            marker_pos_text = " ".join(str(float(v)) for v in marker_pos)
+            for geom_name in ("target_x_a", "target_x_b"):
+                marker = self.model.worldbody.find(f".//geom[@name='{geom_name}']")
+                if marker is None:
+                    raise ValueError(f"Missing expected target marker: {geom_name}")
+                marker.set("pos", marker_pos_text)
 
     def _cart_start_pos(self):
+        if self.robot_is_self_supporting:
+            target = self.robot_world_base_pos + self._layout_rot_z @ XLEROBOT_CUP_HOLDER_CENTER
+            target[2] = self.robot_world_base_pos[2] + XLEROBOT_CUP_HOLDER_SUPPORT_Z + float(self.cup_size[1]) + 0.002
+            return target
         target = self.cart_top + self._layout_rot_z @ self.cart_start_offset
         target[2] = self.cart_top[2] + float(self.cup_size[1]) + 0.002
         return target
@@ -141,18 +166,10 @@ class cupPnP_task5(SOARM101Lift):
         return bool(cup_up_world[2] < np.cos(np.deg2rad(self.cup_failure_tilt_deg)))
 
     def _cup_is_released(self):
-        return not self._check_grasp(
-            gripper=self.robots[0].gripper,
-            object_geoms=self.cube,
-        )
+        return not self._task_gripper_contacts_object(self.cube)
 
     def _gripper_is_clear(self):
-        distance = self._gripper_to_target(
-            gripper=self.robots[0].gripper,
-            target=self.cube.root_body,
-            target_type="body",
-            return_distance=True,
-        )
+        distance = np.linalg.norm(self._task_gripper_tip_pos() - self._cup_pos())
         return bool(distance >= self.gripper_clearance_m)
 
     def _cup_is_stable(self):
@@ -172,6 +189,8 @@ class cupPnP_task5(SOARM101Lift):
         return self._cup_exceeds_failure_tilt()
 
     def _update_target_visual(self, success):
+        if self.robot_is_self_supporting:
+            return
         color = (
             np.array([0.15, 1.0, 0.15, 0.9])
             if success
@@ -187,7 +206,6 @@ class cupPnP_task5(SOARM101Lift):
             and self._cup_is_upright()
             and self._cup_is_released()
             and self._gripper_is_clear()
-            and self._cup_is_stable()
         ):
             self._success_counter += 1
         else:
@@ -279,10 +297,17 @@ class cupPnP_task5(SOARM101Lift):
         self._success_counter = 0
         super()._reset_internal()
         self._reset_cup_to_cart_start()
+        self._randomize_cup_visual_color(self.cup_color_randomization)
         self._update_target_visual(False)
 
     def _reset_cup_to_cart_start(self):
         pos = self._cart_start_pos()
-        yaw = self.layout_yaw_rad + np.deg2rad(self.cup_start_yaw_deg)
+        pos[:2] += self._sample_cup_xy_jitter(self.cup_position_randomization_m)
+        yaw_deg = self.cup_start_yaw_deg + self._sample_cup_yaw_jitter_deg(
+            self.cup_yaw_randomization_deg
+        )
+        yaw = self.layout_yaw_rad + np.deg2rad(yaw_deg)
         quat = np.array([np.cos(yaw / 2.0), 0.0, 0.0, np.sin(yaw / 2.0)], dtype=float)
         self.sim.data.set_joint_qpos(self.cube.joints[0], np.concatenate([pos, quat]))
+        self.sim.data.set_joint_qvel(self.cube.joints[0], np.zeros(6))
+        self.sim.forward()

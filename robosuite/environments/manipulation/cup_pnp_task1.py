@@ -1,5 +1,3 @@
-import xml.etree.ElementTree as ET
-
 import numpy as np
 
 from robosuite.environments.manipulation.soarm101_lift import (
@@ -23,28 +21,42 @@ class cupPnP_task1(SOARM101Lift):
         self,
         *args,
         coffee_target_half_size=(0.035, 0.040, 0.015),
-        cup_start_offset=(-0.37, 0.22, 0.0),
+        cup_start_offset=(-0.29, 0.22, 0.0),
         cup_start_yaw_deg=0.0,
+        cup_position_randomization_m=0.010,
+        cup_yaw_randomization_deg=7.5,
+        cup_color_randomization=0.03,
         success_hold_steps=3,
         cup_max_tilt_deg=45.0,
         cup_failure_tilt_deg=80.0,
+        gripper_clearance_m=0.08,
+        target_center_margin_m=0.005,
         cart_full_size=(0.35, 0.45, 0.04),
         cart_top_height=0.77,
-        main_table_top_height=0.865,
+        main_table_top_height=0.82,
         cart_gap=0.01,
         robot_on_cart_offset=(-0.07, 0.10, 0.0),
-        coffee_machine_offset=(-0.19, 0.0, 0.0),
+        coffee_machine_offset=(-0.1965, 0.0, 0.0),
         head_camera_robot_offset=(-0.402, -0.250, 0.46065),
+        head_start_pan_deg=8.0,
+        head_start_tilt_deg=32.0,
         reward_shaping=True,
         **kwargs,
     ):
         self.coffee_target_half_size = np.array(coffee_target_half_size, dtype=float)
         self.cup_start_offset = np.array(cup_start_offset, dtype=float)
         self.cup_start_yaw_deg = float(cup_start_yaw_deg)
+        self.cup_position_randomization_m = float(cup_position_randomization_m)
+        self.cup_yaw_randomization_deg = float(cup_yaw_randomization_deg)
+        self.cup_color_randomization = float(cup_color_randomization)
         self.success_hold_steps = int(success_hold_steps)
         self.cup_max_tilt_deg = float(cup_max_tilt_deg)
         self.cup_failure_tilt_deg = float(cup_failure_tilt_deg)
+        self.gripper_clearance_m = float(gripper_clearance_m)
+        self.target_center_margin_m = float(target_center_margin_m)
         self._success_counter = 0
+        self.head_start_pan_deg = float(head_start_pan_deg)
+        self.head_start_tilt_deg = float(head_start_tilt_deg)
 
         table_full_size = np.array(kwargs.get("table_full_size", (0.8, 0.8, 0.05)), dtype=float)
 
@@ -92,26 +104,6 @@ class cupPnP_task1(SOARM101Lift):
                 raise ValueError(f"Missing expected camera: {camera_name}")
             camera.set("pos", " ".join(str(float(v)) for v in head_camera_pos))
 
-        center, low, high = self._cup_bay_center_and_bounds()
-        pad_center = center.copy()
-        pad_center[2] = self.coffee_tray_top_z + 0.0015
-        pad_half_size = 0.5 * (high - low)
-        pad_half_size[2] = 0.0015
-
-        ET.SubElement(
-            self.model.worldbody,
-            "geom",
-            {
-                "name": "coffee_success_target_visual",
-                "type": "box",
-                "pos": " ".join(str(float(v)) for v in pad_center),
-                "size": " ".join(str(float(v)) for v in pad_half_size),
-                "rgba": "1 1 1 0.8",
-                "group": "1",
-                "contype": "0",
-                "conaffinity": "0",
-            },
-        )
 
     def _cup_bay_center_and_bounds(self):
         """Return the physically usable cup-center target on the machine tray."""
@@ -136,8 +128,15 @@ class cupPnP_task1(SOARM101Lift):
 
     def _cup_in_target(self):
         cup_pos = self._cup_pos()
-        _, low, high = self._cup_bay_center_and_bounds()
-        return bool(np.all(cup_pos >= low) and np.all(cup_pos <= high))
+        center, low, high = self._cup_bay_center_and_bounds()
+        center_tolerance = (
+            self.coffee_pad_radius
+            - float(self.cup_size[0])
+            + self.target_center_margin_m
+        )
+        centered_on_pad = np.linalg.norm(cup_pos[:2] - center[:2]) <= center_tolerance
+        at_target_height = low[2] <= cup_pos[2] <= high[2]
+        return bool(centered_on_pad and at_target_height)
 
     def _cup_is_upright(self):
         cup_rotation = np.array(self.sim.data.body_xmat[self.cube_body_id], dtype=float).reshape(3, 3)
@@ -149,6 +148,13 @@ class cupPnP_task1(SOARM101Lift):
         cup_up_world = cup_rotation[:, 2]
         return bool(cup_up_world[2] < np.cos(np.deg2rad(self.cup_failure_tilt_deg)))
 
+    def _cup_is_released(self):
+        return not self._task_gripper_contacts_object(self.cube)
+
+    def _gripper_is_clear(self):
+        distance = np.linalg.norm(self._task_gripper_tip_pos() - self._cup_pos())
+        return bool(distance >= self.gripper_clearance_m)
+
     @property
     def task_success(self):
         return self._success_counter >= self.success_hold_steps
@@ -159,14 +165,17 @@ class cupPnP_task1(SOARM101Lift):
         return self._cup_exceeds_failure_tilt()
 
     def _update_success_target_visual(self, success):
-        geom_id = self.sim.model.geom_name2id("coffee_success_target_visual")
-        self.sim.model.geom_rgba[geom_id] = (
-            np.array([0.15, 1.0, 0.15, 0.9]) if success else np.array([1.0, 1.0, 1.0, 0.8])
-        )
+        """The physical cup pad remains white before and after success."""
+        del success
 
     def _check_success(self):
-        """True once the cup center has stayed inside the coffee bay briefly."""
-        if self._cup_in_target() and self._cup_is_upright():
+        """True once the upright cup is placed and the gripper has withdrawn."""
+        if (
+            self._cup_in_target()
+            and self._cup_is_upright()
+            and self._cup_is_released()
+            and self._gripper_is_clear()
+        ):
             self._success_counter += 1
         else:
             self._success_counter = 0
@@ -242,15 +251,29 @@ class cupPnP_task1(SOARM101Lift):
     def _reset_internal(self):
         self._success_counter = 0
         super()._reset_internal()
+        if self.robot_is_self_supporting:
+            for joint_name, angle_deg in (
+                ("robot0_head_pan", self.head_start_pan_deg),
+                ("robot0_head_tilt", self.head_start_tilt_deg),
+            ):
+                self.sim.data.set_joint_qpos(joint_name, np.deg2rad(angle_deg))
+                self.sim.data.set_joint_qvel(joint_name, 0.0)
         self._reset_cup_to_table_start()
+        self._randomize_cup_visual_color(self.cup_color_randomization)
+        self.sim.forward()
         self._update_success_target_visual(False)
 
     def _reset_cup_to_table_start(self):
         """Place the cup on the table, outside the coffee machine, at reset."""
         _, cup_half_height = [float(v) for v in self.cup_size]
         pos = np.array(self.table_offset, dtype=float) + self.cup_start_offset
+        pos[:2] += self._sample_cup_xy_jitter(self.cup_position_randomization_m)
         pos[2] = float(self.table_offset[2] + cup_half_height + 0.005)
 
-        yaw = np.deg2rad(self.cup_start_yaw_deg)
+        yaw_deg = self.cup_start_yaw_deg + self._sample_cup_yaw_jitter_deg(
+            self.cup_yaw_randomization_deg
+        )
+        yaw = np.deg2rad(yaw_deg)
         quat = np.array([np.cos(yaw / 2.0), 0.0, 0.0, np.sin(yaw / 2.0)], dtype=float)
         self.sim.data.set_joint_qpos(self.cube.joints[0], np.concatenate([pos, quat]))
+        self.sim.data.set_joint_qvel(self.cube.joints[0], np.zeros(6))

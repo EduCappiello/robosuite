@@ -3,6 +3,8 @@ import xml.etree.ElementTree as ET
 import numpy as np
 
 from robosuite.environments.manipulation.soarm101_lift import (
+    XLEROBOT_ARM_DECK_Z,
+    XLEROBOT_ARM_FORWARD_X,
     SOARM101Lift,
     robots_bring_their_own_base,
 )
@@ -15,16 +17,21 @@ BREW_BUTTON = "brew_button"
 # robots: the brew button sits at y=-0.11, next to the right arm base at y=-0.137,
 # and it is the nearer of the two (0.395 m vs 0.465 m).
 TOUCH_STYLUS_PARENT_BODY = "robot0_gripper"
-TOUCH_STYLUS_PARENT_CANDIDATES = ("robot0_gripper", "robot0_right_gripper", "robot0_left_gripper")
+TOUCH_STYLUS_XLEROBOT_RIGHT_PARENT_BODY = "robot0_right_gripper"
+TOUCH_STYLUS_PARENT_CANDIDATES = (
+    TOUCH_STYLUS_PARENT_BODY,
+    TOUCH_STYLUS_XLEROBOT_RIGHT_PARENT_BODY,
+    "robot0_left_gripper",
+)
 TOUCH_STYLUS_SHAFT_FROMTO = (
     -0.039,
     -0.0002,
     -0.025,
     -0.014,
     -0.0002,
-    -0.113,
+    -0.11765,
 )
-TOUCH_STYLUS_TIP_POS = (-0.012, -0.0002, -0.120)
+TOUCH_STYLUS_TIP_POS = (-0.012, -0.0002, -0.12465)
 BUTTON_NAMES = (
     "button_top_left",
     "button_top_right",
@@ -208,29 +215,40 @@ class cupPnP_task2(SOARM101Lift):
         coffee_target_half_size=(0.035, 0.040, 0.015),
         cup_start_yaw_deg=0.0,
         button_contact_threshold=1e-4,
-        no_touch_timeout_s=30.0,
+        no_touch_timeout_s=60.0,
         cart_full_size=(0.35, 0.45, 0.04),
         cart_top_height=0.72,
-        main_table_top_height=0.865,
+        main_table_top_height=0.82,
         cart_gap=0.01,
         robot_on_cart_offset=(-0.07, -0.20, 0.0),
         robot_pedestal_full_size=(0.16, 0.12, 0.05),
-        coffee_machine_offset=(-0.19, 0.0, 0.0),
+        coffee_machine_offset=(-0.1965, 0.0, 0.0),
         head_camera_robot_offset=(-0.402, -0.250, 0.46065),
         stylus_arm="right",
         reward_shaping=True,
         control_freq=20,
         **kwargs,
     ):
+        self._xlerobot_layout = robots_bring_their_own_base(kwargs.get("robots"))
+        if self._xlerobot_layout:
+            # Match Task 1 / Task 3: the complete XLeRobot cart sits beside the
+            # main table and needs neither the Task 2 desk-arm shift nor pedestal.
+            cart_top_height = 0.77
+            robot_on_cart_offset = (-0.07, 0.10, 0.0)
         # Which hand carries the button stylus. Ignored for the single desk arm
         # (it has one gripper); for XLeRobot the right hand is nearer the brew
         # button. Set "left" to press with the other hand.
         self.stylus_arm = str(stylus_arm)
-        self.stylus_parent_body = (
-            f"robot0_{self.stylus_arm}_gripper"
-            if robots_bring_their_own_base(kwargs.get("robots"))
-            else None
-        )
+        if self.stylus_arm not in {"right", "left"}:
+            raise ValueError(f"stylus_arm must be 'right' or 'left', got {self.stylus_arm!r}")
+        if self._xlerobot_layout:
+            self.stylus_parent_body = (
+                TOUCH_STYLUS_XLEROBOT_RIGHT_PARENT_BODY
+                if self.stylus_arm == "right"
+                else "robot0_left_gripper"
+            )
+        else:
+            self.stylus_parent_body = None
         self.coffee_target_half_size = np.array(coffee_target_half_size, dtype=float)
         self.cup_start_yaw_deg = float(cup_start_yaw_deg)
         self.button_contact_threshold = float(button_contact_threshold)
@@ -260,12 +278,18 @@ class cupPnP_task2(SOARM101Lift):
         kwargs.setdefault("robot_support_table_full_size", cart_full_size)
         kwargs.setdefault("robot_support_table_offset", cart_top)
         robot_support_offset = np.array(robot_on_cart_offset, dtype=float)
-        robot_support_offset[2] += self.robot_pedestal_full_size[2]
+        if not self._xlerobot_layout:
+            robot_support_offset[2] += self.robot_pedestal_full_size[2]
         kwargs.setdefault("robot_support_robot_offset", robot_support_offset)
         self.robot_base_pos = (
             np.array(kwargs["robot_support_table_offset"], dtype=float)
             + np.array(kwargs["robot_support_robot_offset"], dtype=float)
         )
+        if self._xlerobot_layout:
+            self.robot_base_pos = np.array(
+                [cart_center_x + XLEROBOT_ARM_FORWARD_X, 0.0, XLEROBOT_ARM_DECK_Z],
+                dtype=float,
+            )
         super().__init__(
             *args,
             reward_shaping=reward_shaping,
@@ -276,12 +300,13 @@ class cupPnP_task2(SOARM101Lift):
     def _load_model(self):
         self.table_offset = np.array([0.0, 0.0, self.main_table_top_height], dtype=float)
         super()._load_model()
-        add_task2_robot_pedestal(
-            self.model.worldbody,
-            self.cart_top,
-            self.robot_base_pos,
-            self.robot_pedestal_full_size,
-        )
+        if not self._xlerobot_layout:
+            add_task2_robot_pedestal(
+                self.model.worldbody,
+                self.cart_top,
+                self.robot_base_pos,
+                self.robot_pedestal_full_size,
+            )
         add_task2_touch_stylus(self.model.worldbody, self.stylus_parent_body)
 
         head_camera_pos = self.robot_base_pos + self.head_camera_robot_offset

@@ -30,9 +30,9 @@
   - Head: upstream's mast/gimbal meshes at their CAD frames, shifted +0.041 m with the
     mounting plate onto our arm deck. Actuators and ranges are ours; masses are
     estimates (the head is not force-estimated).
-  - No wrist cameras: the real build has none, so the sim must not either (a sim-only
-    camera would produce observations no policy can get on hardware). The upstream
-    XLeRobot_camera1/2 meshes were tried and removed. Head camera only.
+  - The right fixed jaw carries the physical wrist-camera bracket CAD. The camera
+    sensor itself remains optional so datasets only expose wrist images when the
+    matching hardware / simulated sensor is configured.
 -->
 <mujoco model="xlerobot">
   <compiler angle="radian" meshdir="." autolimits="true"/>
@@ -116,9 +116,9 @@
       <!-- ── Printed foam cup holder, top basket ────────────────────────────────
            Measured off the build: block 29.5 (L, along y) x 18 (W, along x) x 7 cm
            thick, six holes of diameter 7 cm in 2 rows x 3 columns, 2 cm between
-           holes and 2.25 cm to the short ends. It rests on the top basket floor
-           (z=0.688, found by raycasting down inside the basket) so its top sits at 0.758, just under
-           the rim, and it sits FORWARD of the arm mounting plate (topbase1 ends at
+           holes and 2.25 cm to the short ends. It is raised so its top sits at
+           z=0.775, flush with the top basket rim, and it sits FORWARD of the arm
+           mounting plate (topbase1 ends at
            x=-0.03), as on the real cart.
            The measured gaps (3 cm right / 6.5 cm left) sum to 39 cm, and the basket
            interior AT THIS HEIGHT measures 39.24 cm - they match to 2 mm, confirming
@@ -132,45 +132,45 @@
            Collidable - holding cups is the entire point.
            One slot is a CUP PLACE: blind, 3 cm deep instead of a through-hole, so a
            cup rests proud of the foam rather than dropping to the basket floor. It is
-           the forward-right slot at (0.1048, -0.1083), floor at z=0.728 - the "top
+           the forward-right slot at (0.1048, -0.1083), floor at z=0.745 - the "top
            right" one in the head-cam view (image right is world -y, image up is +x).
            Move it by changing CUP_PLACE in scripts/gen_holder-style regeneration. -->
-      <geom name="cup_foam_xrib0" type="box" pos="-0.02520 -0.01830 0.72300" size="0.00500 0.14750 0.03500" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
-      <geom name="cup_foam_xrib1" type="box" pos="0.05980 -0.01830 0.72300" size="0.01000 0.14750 0.03500" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
-      <geom name="cup_foam_xrib2" type="box" pos="0.14480 -0.01830 0.72300" size="0.00500 0.14750 0.03500" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
-      <geom name="cup_foam_yrib0_0" type="box" pos="0.01480 -0.15455 0.72300" size="0.03500 0.01125 0.03500" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
-      <geom name="cup_foam_yrib0_1" type="box" pos="0.10480 -0.15455 0.72300" size="0.03500 0.01125 0.03500" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
-      <geom name="cup_foam_yrib1_0" type="box" pos="0.01480 -0.06330 0.72300" size="0.03500 0.01000 0.03500" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
-      <geom name="cup_foam_yrib1_1" type="box" pos="0.10480 -0.06330 0.72300" size="0.03500 0.01000 0.03500" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
-      <geom name="cup_foam_yrib2_0" type="box" pos="0.01480 0.02670 0.72300" size="0.03500 0.01000 0.03500" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
-      <geom name="cup_foam_yrib2_1" type="box" pos="0.10480 0.02670 0.72300" size="0.03500 0.01000 0.03500" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
-      <geom name="cup_foam_yrib3_0" type="box" pos="0.01480 0.11795 0.72300" size="0.03500 0.01125 0.03500" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
-      <geom name="cup_foam_yrib3_1" type="box" pos="0.10480 0.11795 0.72300" size="0.03500 0.01125 0.03500" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
-      <geom name="cup_foam_ch000" type="box" pos="0.04467 -0.07843 0.72300" size="0.00725 0.01450 0.03500" quat="0.923880 0 0 0.382683" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
-      <geom name="cup_foam_ch001" type="box" pos="-0.01507 -0.07843 0.72300" size="0.00725 0.01450 0.03500" quat="0.382683 0 0 0.923880" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
-      <geom name="cup_foam_ch002" type="box" pos="-0.01507 -0.13817 0.72300" size="0.00725 0.01450 0.03500" quat="-0.382683 0 0 0.923880" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
-      <geom name="cup_foam_ch003" type="box" pos="0.04467 -0.13817 0.72300" size="0.00725 0.01450 0.03500" quat="-0.923880 0 0 0.382683" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
-      <geom name="cup_foam_ch010" type="box" pos="0.04467 0.01157 0.72300" size="0.00725 0.01450 0.03500" quat="0.923880 0 0 0.382683" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
-      <geom name="cup_foam_ch011" type="box" pos="-0.01507 0.01157 0.72300" size="0.00725 0.01450 0.03500" quat="0.382683 0 0 0.923880" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
-      <geom name="cup_foam_ch012" type="box" pos="-0.01507 -0.04817 0.72300" size="0.00725 0.01450 0.03500" quat="-0.382683 0 0 0.923880" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
-      <geom name="cup_foam_ch013" type="box" pos="0.04467 -0.04817 0.72300" size="0.00725 0.01450 0.03500" quat="-0.923880 0 0 0.382683" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
-      <geom name="cup_foam_ch020" type="box" pos="0.04467 0.10157 0.72300" size="0.00725 0.01450 0.03500" quat="0.923880 0 0 0.382683" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
-      <geom name="cup_foam_ch021" type="box" pos="-0.01507 0.10157 0.72300" size="0.00725 0.01450 0.03500" quat="0.382683 0 0 0.923880" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
-      <geom name="cup_foam_ch022" type="box" pos="-0.01507 0.04183 0.72300" size="0.00725 0.01450 0.03500" quat="-0.382683 0 0 0.923880" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
-      <geom name="cup_foam_ch023" type="box" pos="0.04467 0.04183 0.72300" size="0.00725 0.01450 0.03500" quat="-0.923880 0 0 0.382683" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
-      <geom name="cup_foam_ch100" type="box" pos="0.13467 -0.07843 0.72300" size="0.00725 0.01450 0.03500" quat="0.923880 0 0 0.382683" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
-      <geom name="cup_foam_ch101" type="box" pos="0.07493 -0.07843 0.72300" size="0.00725 0.01450 0.03500" quat="0.382683 0 0 0.923880" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
-      <geom name="cup_foam_ch102" type="box" pos="0.07493 -0.13817 0.72300" size="0.00725 0.01450 0.03500" quat="-0.382683 0 0 0.923880" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
-      <geom name="cup_foam_ch103" type="box" pos="0.13467 -0.13817 0.72300" size="0.00725 0.01450 0.03500" quat="-0.923880 0 0 0.382683" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
-      <geom name="cup_foam_ch110" type="box" pos="0.13467 0.01157 0.72300" size="0.00725 0.01450 0.03500" quat="0.923880 0 0 0.382683" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
-      <geom name="cup_foam_ch111" type="box" pos="0.07493 0.01157 0.72300" size="0.00725 0.01450 0.03500" quat="0.382683 0 0 0.923880" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
-      <geom name="cup_foam_ch112" type="box" pos="0.07493 -0.04817 0.72300" size="0.00725 0.01450 0.03500" quat="-0.382683 0 0 0.923880" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
-      <geom name="cup_foam_ch113" type="box" pos="0.13467 -0.04817 0.72300" size="0.00725 0.01450 0.03500" quat="-0.923880 0 0 0.382683" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
-      <geom name="cup_foam_ch120" type="box" pos="0.13467 0.10157 0.72300" size="0.00725 0.01450 0.03500" quat="0.923880 0 0 0.382683" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
-      <geom name="cup_foam_ch121" type="box" pos="0.07493 0.10157 0.72300" size="0.00725 0.01450 0.03500" quat="0.382683 0 0 0.923880" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
-      <geom name="cup_foam_ch122" type="box" pos="0.07493 0.04183 0.72300" size="0.00725 0.01450 0.03500" quat="-0.382683 0 0 0.923880" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
-      <geom name="cup_foam_ch123" type="box" pos="0.13467 0.04183 0.72300" size="0.00725 0.01450 0.03500" quat="-0.923880 0 0 0.382683" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
-      <geom name="cup_foam_place_bottom" type="box" pos="0.10480 -0.10830 0.70800" size="0.03500 0.03500 0.02000" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
+      <geom name="cup_foam_xrib0" type="box" pos="-0.02520 -0.01830 0.74000" size="0.00500 0.14750 0.03500" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
+      <geom name="cup_foam_xrib1" type="box" pos="0.05980 -0.01830 0.74000" size="0.01000 0.14750 0.03500" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
+      <geom name="cup_foam_xrib2" type="box" pos="0.14480 -0.01830 0.74000" size="0.00500 0.14750 0.03500" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
+      <geom name="cup_foam_yrib0_0" type="box" pos="0.01480 -0.15455 0.74000" size="0.03500 0.01125 0.03500" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
+      <geom name="cup_foam_yrib0_1" type="box" pos="0.10480 -0.15455 0.74000" size="0.03500 0.01125 0.03500" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
+      <geom name="cup_foam_yrib1_0" type="box" pos="0.01480 -0.06330 0.74000" size="0.03500 0.01000 0.03500" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
+      <geom name="cup_foam_yrib1_1" type="box" pos="0.10480 -0.06330 0.74000" size="0.03500 0.01000 0.03500" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
+      <geom name="cup_foam_yrib2_0" type="box" pos="0.01480 0.02670 0.74000" size="0.03500 0.01000 0.03500" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
+      <geom name="cup_foam_yrib2_1" type="box" pos="0.10480 0.02670 0.74000" size="0.03500 0.01000 0.03500" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
+      <geom name="cup_foam_yrib3_0" type="box" pos="0.01480 0.11795 0.74000" size="0.03500 0.01125 0.03500" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
+      <geom name="cup_foam_yrib3_1" type="box" pos="0.10480 0.11795 0.74000" size="0.03500 0.01125 0.03500" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
+      <geom name="cup_foam_ch000" type="box" pos="0.04467 -0.07843 0.74000" size="0.00725 0.01450 0.03500" quat="0.923880 0 0 0.382683" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
+      <geom name="cup_foam_ch001" type="box" pos="-0.01507 -0.07843 0.74000" size="0.00725 0.01450 0.03500" quat="0.382683 0 0 0.923880" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
+      <geom name="cup_foam_ch002" type="box" pos="-0.01507 -0.13817 0.74000" size="0.00725 0.01450 0.03500" quat="-0.382683 0 0 0.923880" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
+      <geom name="cup_foam_ch003" type="box" pos="0.04467 -0.13817 0.74000" size="0.00725 0.01450 0.03500" quat="-0.923880 0 0 0.382683" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
+      <geom name="cup_foam_ch010" type="box" pos="0.04467 0.01157 0.74000" size="0.00725 0.01450 0.03500" quat="0.923880 0 0 0.382683" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
+      <geom name="cup_foam_ch011" type="box" pos="-0.01507 0.01157 0.74000" size="0.00725 0.01450 0.03500" quat="0.382683 0 0 0.923880" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
+      <geom name="cup_foam_ch012" type="box" pos="-0.01507 -0.04817 0.74000" size="0.00725 0.01450 0.03500" quat="-0.382683 0 0 0.923880" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
+      <geom name="cup_foam_ch013" type="box" pos="0.04467 -0.04817 0.74000" size="0.00725 0.01450 0.03500" quat="-0.923880 0 0 0.382683" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
+      <geom name="cup_foam_ch020" type="box" pos="0.04467 0.10157 0.74000" size="0.00725 0.01450 0.03500" quat="0.923880 0 0 0.382683" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
+      <geom name="cup_foam_ch021" type="box" pos="-0.01507 0.10157 0.74000" size="0.00725 0.01450 0.03500" quat="0.382683 0 0 0.923880" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
+      <geom name="cup_foam_ch022" type="box" pos="-0.01507 0.04183 0.74000" size="0.00725 0.01450 0.03500" quat="-0.382683 0 0 0.923880" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
+      <geom name="cup_foam_ch023" type="box" pos="0.04467 0.04183 0.74000" size="0.00725 0.01450 0.03500" quat="-0.923880 0 0 0.382683" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
+      <geom name="cup_foam_ch100" type="box" pos="0.13467 -0.07843 0.74000" size="0.00725 0.01450 0.03500" quat="0.923880 0 0 0.382683" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
+      <geom name="cup_foam_ch101" type="box" pos="0.07493 -0.07843 0.74000" size="0.00725 0.01450 0.03500" quat="0.382683 0 0 0.923880" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
+      <geom name="cup_foam_ch102" type="box" pos="0.07493 -0.13817 0.74000" size="0.00725 0.01450 0.03500" quat="-0.382683 0 0 0.923880" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
+      <geom name="cup_foam_ch103" type="box" pos="0.13467 -0.13817 0.74000" size="0.00725 0.01450 0.03500" quat="-0.923880 0 0 0.382683" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
+      <geom name="cup_foam_ch110" type="box" pos="0.13467 0.01157 0.74000" size="0.00725 0.01450 0.03500" quat="0.923880 0 0 0.382683" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
+      <geom name="cup_foam_ch111" type="box" pos="0.07493 0.01157 0.74000" size="0.00725 0.01450 0.03500" quat="0.382683 0 0 0.923880" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
+      <geom name="cup_foam_ch112" type="box" pos="0.07493 -0.04817 0.74000" size="0.00725 0.01450 0.03500" quat="-0.382683 0 0 0.923880" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
+      <geom name="cup_foam_ch113" type="box" pos="0.13467 -0.04817 0.74000" size="0.00725 0.01450 0.03500" quat="-0.923880 0 0 0.382683" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
+      <geom name="cup_foam_ch120" type="box" pos="0.13467 0.10157 0.74000" size="0.00725 0.01450 0.03500" quat="0.923880 0 0 0.382683" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
+      <geom name="cup_foam_ch121" type="box" pos="0.07493 0.10157 0.74000" size="0.00725 0.01450 0.03500" quat="0.382683 0 0 0.923880" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
+      <geom name="cup_foam_ch122" type="box" pos="0.07493 0.04183 0.74000" size="0.00725 0.01450 0.03500" quat="-0.382683 0 0 0.923880" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
+      <geom name="cup_foam_ch123" type="box" pos="0.13467 0.04183 0.74000" size="0.00725 0.01450 0.03500" quat="-0.923880 0 0 0.382683" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
+      <geom name="cup_foam_place_bottom" type="box" pos="0.10480 -0.10830 0.72500" size="0.03500 0.03500 0.02000" group="1" material="cup_foam" friction="1.2 0.02 0.001"/>
       <!-- Omni wheels (visual only — the planar joints are the ground interface). -->
       <geom name="wheel_f_vis" type="cylinder" pos="0.13 0 0.035" size="0.035 0.012" quat="0.707107 0.707107 0 0" contype="0" conaffinity="0" group="1" rgba="0.15 0.15 0.15 1"/>
       <geom name="wheel_bl_vis" type="cylinder" pos="-0.09 0.145 0.035" size="0.035 0.012" quat="0.612372 0.612372 0.353553 0.353553" contype="0" conaffinity="0" group="1" rgba="0.15 0.15 0.15 1"/>
@@ -223,6 +223,30 @@
                   <geom type="mesh" class="visual" pos="0.0077 0.0001 -0.0234" quat="0.707107 -0.707107 1.66015e-15 6.45094e-15" mesh="sts3215_03a_v1" material="sts3215_03a_v1_material"/>
                   <geom type="mesh" class="collision" pos="0.0077 0.0001 -0.0234" quat="0.707107 -0.707107 1.66015e-15 6.45094e-15" mesh="sts3215_03a_v1" material="sts3215_03a_v1_material"/>
                   <geom type="mesh" class="visual" pos="8.32667e-17 -0.000218214 0.000949706" quat="0 1 0 0" mesh="wrist_roll_follower_so101_v1" material="wrist_roll_follower_so101_v1_material"/>
+                  <!-- Preserve the calibrated SO101 wrist-camera installation:
+                       align this STL's four-hole plate to the legacy robosuite
+                       mount plate after composing the eef, mount, and mesh frames. -->
+                  <body name="right_gripper_camera_mount"
+                        pos="0.00100000 0.02550000 -0.08450000"
+                        quat="0.47788572 0.52150511 -0.51697386 0.48207436">
+                    <geom name="right_gripper_camera_mount_vis" type="mesh" pos="0 0 0" quat="1 0 0 0"
+                          mesh="right_gripper_camera_mount_v0" material="gripper_camera_mount_white"
+                          contype="0" conaffinity="0" group="1"/>
+                    <!-- Initial camera pose on the STL's broad mounting plate. Tune this
+                         child body independently after the bracket pose is fixed. -->
+                    <body name="right_gripper_camera_sensor"
+                          pos="0.05450000 0.00100000 0.09000000"
+                          quat="0.00000000 -0.31316381 0.00000000 0.94969913">
+                      <geom name="right_gripper_camera_board_vis" type="box" pos="0 0 0"
+                            size="0.001 0.016 0.016" rgba="0.015 0.015 0.015 1"
+                            contype="0" conaffinity="0" group="1"/>
+                      <geom name="right_gripper_camera_lens_vis" type="cylinder" pos="0.009 0 0"
+                            size="0.006 0.008" euler="0 1.57079632679 0"
+                            rgba="0.04 0.04 0.06 1" contype="0" conaffinity="0" group="1"/>
+                      <camera name="right_gripper_cam" mode="fixed" pos="0.018 0 0"
+                              xyaxes="0 -1 0 -0.22 0 0.975" fovy="86.63"/>
+                    </body>
+                  </body>
                   <geom name="right_static_finger_root_col_0" type="box" pos="-0.0026668 -0.0024792 -0.0024109" size="0.0316952 0.0256208 0.0036109" friction="0.4 0.02 0.001" solimp="0.995 0.999 0.001" solref="0.005 1" rgba="1 0 0 0.65"/>
                   <geom name="right_static_finger_root_col_1" type="box" pos="-0.0026000 -0.0020000 -0.0092481" size="0.0327000 0.0261000 0.0036039" friction="0.4 0.02 0.001" solimp="0.995 0.999 0.001" solref="0.005 1" rgba="1 0 0 0.65"/>
                   <geom name="right_static_finger_root_col_2" type="box" pos="-0.0106248 0.0000000 -0.0160860" size="0.0246752 0.0241000 0.0035669" friction="0.4 0.02 0.001" solimp="0.995 0.999 0.001" solref="0.005 1" rgba="1 0 0 0.65"/>
@@ -362,7 +386,7 @@
                the tophead5 gimbal (x -0.012..+0.013) and every frame rendered black.
                Looks along +x of the tilt link, i.e. forward over the arms — our
                convention, not upstream's ROS optical frame. -->
-          <camera name="head_cam" pos="0.036 0.003 0.027" xyaxes="0 -1 0 0 0 1" fovy="42.5"/>
+          <camera name="head_cam" pos="0.036 0.003 0.027" xyaxes="0 -1 0 0 0 1" fovy="60"/>
           <site group="3" name="head_cam_frame" pos="0.036 0.003 0.027" quat="1 0 0 0"/>
         </body>
       </body>
@@ -397,6 +421,7 @@
     <mesh name="tophead4" file="assets/tophead4.stl" scale="0.001 0.001 0.001"/>
     <mesh name="tophead5" file="assets/tophead5.stl" scale="0.001 0.001 0.001"/>
     <mesh name="tophead6" file="assets/tophead6.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="right_gripper_camera_mount_v0" file="assets/version0.stl" scale="0.001 0.001 0.001"/>
     <material name="base_motor_holder_so101_v1_material" rgba="1 0.82 0.12 1"/>
     <material name="base_so101_v2_material" rgba="1 0.82 0.12 1"/>
     <material name="sts3215_03a_v1_material" rgba="0.1 0.1 0.1 1"/>
@@ -409,6 +434,7 @@
     <material name="sts3215_03a_no_horn_v1_material" rgba="0.1 0.1 0.1 1.0"/>
     <material name="wrist_roll_pitch_so101_v2_material" rgba="1 0.82 0.12 1"/>
     <material name="wrist_roll_follower_so101_v1_material" rgba="1 0.82 0.12 1"/>
+    <material name="gripper_camera_mount_white" rgba="0.96 0.96 0.96 1" specular="0.15" shininess="0.2"/>
   </asset>
   <!-- Same phantom-self-contact exclusion as the single-arm model: at folded poses the
        finger pads graze the shoulder meshes' convex hulls (the real arm does not). -->
