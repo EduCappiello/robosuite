@@ -140,10 +140,10 @@ def test_task2_reads_only_stylus_tip_button_contact_pairs():
         "button_top_left",
     }
 
-def test_task2_robot_is_shifted_30_cm_to_robot_right():
+def test_task2_robot_is_shifted_right_and_back():
     signature = inspect.signature(cupPnP_task2)
     default_offset = signature.parameters["robot_on_cart_offset"].default
-    assert np.allclose(default_offset, [-0.07, -0.20, 0.0])
+    assert np.allclose(default_offset, [-0.10, -0.20, 0.0])
 
     cart_top_height = signature.parameters["cart_top_height"].default
     pedestal_size = signature.parameters["robot_pedestal_full_size"].default

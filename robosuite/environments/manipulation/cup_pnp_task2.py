@@ -194,7 +194,7 @@ class cupPnP_task2(SOARM101Lift):
         cart_top_height=0.72,
         main_table_top_height=0.865,
         cart_gap=0.01,
-        robot_on_cart_offset=(-0.07, -0.20, 0.0),
+        robot_on_cart_offset=(-0.10, -0.20, 0.0),
         robot_pedestal_full_size=(0.16, 0.12, 0.05),
         coffee_machine_offset=(-0.19, 0.0, 0.0),
         head_camera_robot_offset=(-0.402, -0.250, 0.46065),
