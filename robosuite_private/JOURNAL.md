@@ -764,3 +764,184 @@ PHYSICAL; it corrupts the MEASURED τ_motor at folded poses (not the model).
   estimation/calibration when the user wires `filter_free` into their calibration loop.
 
 <!-- Append new dated entries below this line. -->
+
+### 2026-07-21 — Classroom 128 + native full XLeRobot composition verified
+Added a workspace-level RoboCasa extension that builds `classroom128.usd` as a
+custom split layout/style arena, assembles its 12 fixed fixture models through
+`ManipulationTask`, and attaches the upstream full XLeRobot MJCF through MuJoCo
+3.3 `MjSpec`. This deliberately does not register XLeRobot as SOARM101 or force
+it through PandaOmron's robosuite mobile-base API: the native dual arms, planar
+chassis, wheels, head, 20 joints, and 18 actuators remain unchanged.
+
+Physics checks: composite 48 bodies / 97 geoms; 24 collidable classroom geoms;
+zero non-XLeRobot joints; zero fixture drift over 0.5 s; commanded chassis
+motion remained finite with the source model's `implicitfast` integrator; an
+intentional desk penetration yielded contacts on the right desk front/top;
+exported MJCF recompiled to identical dimensions. The first draft converted
+`KitchenArena.get_xml()` directly and therefore omitted fixtures; corrected by
+matching RoboCasa's normal `ManipulationTask` assembly stage before MjSpec.
+
+### 2026-07-21 — Classroom XLeRobot now consumes the live operation gripper collision profile
+Replaced the full XLeRobot model's combined visual/collision jaw meshes with the
+current operation primitive chains, read dynamically from
+`soarm_with_sensor.xml` (15 fixed-finger boxes) and `so101_gripper.xml`
+(12 moving-jaw boxes) for each arm. Original jaw meshes remain visual-only.
+Preserved source collision masks and friction `0.4 0.02 0.001`.
+
+Frame mapping was verified against the source/target jaw mesh bounds: fixed
+finger maps SO101 local `(x,y,z)` to XLeRobot `(-x,z,-y)` plus the fitted root
+translation; moving jaw shares XY and removes the source +18.9 mm Z mesh offset.
+Final checks: 54/54 operation boxes active, 10/10 original jaw mesh geoms
+contact-disabled, four probes passed across left/right fixed/moving fingers, no
+self-contact over 0.5 s, fixtures stayed fixed, and exported 48/151/20/18 MJCF
+recompiled exactly.
+
+### 2026-07-21 — Classroom XLeRobot interactive viewer + keyboard teleop
+Changed the workspace demo from a headless-only smoke test to a default MuJoCo
+passive viewer with real-time stepping and native actuator control. `1/2`
+selects left/right arm; six +/- key pairs command rotation through jaw; arrows
+and PageUp/PageDown command the planar base; Space explicitly zeroes persistent
+base velocity. `--show-gripper-collision` displays the 54 live operation boxes,
+and `--headless` retains CI/smoke behavior. Callback-level validation covered
+both jaws, arm switching, base drive/rotation/stop, and 0.5 s finite stepping.
+
+### 2026-07-21 — CORRECTION: viewer now matches the operation key contract exactly
+The initial viewer controls above were an invented active-arm abstraction and
+did not match the current XLeRobot operation workflow. Replaced them with the
+literal left/right dictionaries from `4_xlerobot_teleop_keyboard.py` and the
+base mapping from `config_xlerobot.py`. Added pynput press/release tracking,
+operation IK and wrist coupling, resets, speed levels, head keys, and rectangle
+trajectories. Since the source MJCF omitted actuators for its existing head
+joints, the composite now adds bounded pan/tilt position servos (20 actuators
+total). AST keymap equality plus per-control tests passed; base release now
+immediately produces zero velocity and the final export is 48/151/20/20.
+
+### 2026-07-21 - CORRECTION: isolated viewer hotkeys; shared arm controls selected by 1/2
+The passive MuJoCo viewer was also handling operation keys: `W` toggled its
+wireframe flag while the teleop layer used the same press for Cartesian X.
+Replaced it with a GLFW renderer that intentionally has no key callback, while
+retaining mouse rotate/move/zoom and using pynput exclusively for teleop.
+
+The operator then explicitly requested one common arm key set. `1` now selects
+left and `2` right (left at startup); the selected arm receives
+`Q/E W/S A/D Z/X R/F T/G C Y`. Head/base maps are unchanged. A real GLFW
+render initialization passed, source inspection found no passive viewer/key
+callback, and direct controller tests verified left-only commands before `2`,
+right-only `Q/T/W` after `2`, and switching back with `1`.
+
+### 2026-07-21 - Selected gripper now toggles with Space
+Replaced selected-arm `T/G` jaw increments with an edge-triggered Space toggle,
+matching the requested RoboCasa-style open/close interaction. The selected
+gripper switches between 0 degrees closed and 90 degrees open; holding Space
+does not retrigger, and `C` resets it closed. Tests covered left/right selection,
+hold/release behavior, reset, and pynput key normalization. Collision-tip
+separation increased from 24.3 mm to 119.8 mm between the closed/open targets,
+confirming the intended motion direction.
+
+### 2026-07-21 - Reference spawn/folded pose and neutral collision-free rendering
+Confirmed the supplied top-down placement is world `[2.45, 0.75, 0]`, yaw 0,
+left of the right desk and facing +Y. Both arms now reset to the upstream
+folded/safe state (Rotation 0, Pitch 3.14, Elbow 3.14, Wrist_Pitch 0,
+Wrist_Roll 1.57, Jaw 0). Data qpos, compiled qpos0, and position targets agree;
+idle teleop preserves it and selected-arm `C` restores it.
+
+Added a neutral palette to the separate Classroom style YAML and stopped
+rendering fixed-fixture collision geoms over their visuals. Fixture collisions
+remain active in group 3, optional operation jaw boxes use group 4, task markers
+and the translucent chassis proxy are hidden, and the default camera is a high
+indoor overview. Exact pose/control/group/color checks, fresh-MjData qpos0,
+zero initial contacts, 0.5 s finite idle physics, real GLFW framebuffer visual
+QA, and exported 48/151/20/20 MJCF reload all passed.
+
+### 2026-07-23 - CORRECTION: opaque tray and full arm-chain fold
+E035 hid the tall chassis tray/support collision shell, which visually detached
+the arms from the mobile base. Restored it to visible group 1 with opaque dark
+gray RGBA `0.18 0.20 0.23 1`. The initial pose now also sets Wrist_Pitch to
+1.57 on both arms (with Pitch/Elbow 3.14 and Wrist_Roll 1.57), folding the
+wrist/gripper instead of only the shoulder/elbow links. The fixed-height mast
+has no lift/folding joint in the source MJCF, so no morphology was invented.
+
+Rendered six wrist variants before selection. The chosen pose has zero initial
+contacts, exact qpos/control synchronization, 0.5 s finite idle physics with no
+contacts, and successful close-up GLFW visual QA. Exported 48/151/20/20 MJCF
+reload preserves the opaque tray.
+
+### 2026-07-23 - Default XLeRobot spawn moved in front of cabinet
+Mapped the blue marked silhouette to the small cabinet geometry and changed the
+default world pose to `[2.90, 2.0025, 0]`, yaw `-pi/2`. The tray is immediately
+left of the cabinet with 14 cm measured clearance, and the folded arms face +X
+toward the cabinet. Exact position/orientation assertions, zero initial contact,
+0.5 s contact-free finite physics, headless loading, and regenerated
+48/151/20/20 MJCF reload all passed.
+
+### 2026-07-23 - F6 screenshot now clears motion and captures internally
+F6/PrintScreen previously normalized to `None`, so the teleop ignored them; an
+external screenshot tool could swallow a key-release event and leave an older
+movement key latched. Added explicit screenshot events that clear held keys,
+zero base targets, cancel trajectories, and hold all arm/head actuators at
+current qpos before reading the GLFW framebuffer. Screenshots are timestamped
+under `renders/`. A held-I/Q regression test verified zero base and exact pose
+hold after F6; a real 480x640 capture produced a valid non-empty PNG.
+
+### 2026-07-23 - CORRECTION: F6 capture no longer changes position targets or steps physics
+The first safety implementation retargeted every arm/head actuator to current
+qpos. Catch-up stepping after screenshot-tool wall-time could then move the
+robot under that changed control state. F6 now clears held keys and zeros only
+base controls, leaves all position targets untouched, renders without any
+teleop update or `mj_step`, discards accumulated time, and resets the wall
+clock. I/Q/W regression testing showed bitwise-identical position targets,
+qpos, qvel, and sim time; a real 44 KB framebuffer capture also left qpos,
+qvel, ctrl, and time exactly unchanged.
+
+### 2026-07-23 - F6 and PrintScreen functionality removed entirely
+Per the user's explicit request, removed all F6/PrintScreen mappings, internal
+screenshot state and rendering code, overlay text, and documentation. Both
+keys are now unmapped and pressing F6 was regression-tested to leave pressed
+keys, actuator targets, ctrl, qpos, qvel, and simulation time unchanged.
+
+The event loop still discards accumulated catch-up time after any generic
+window/focus pause longer than 50 ms. This guard is not bound to F6 or any
+other key. It prevents an external screenshot tool or focus change from
+causing a later burst of physics. The preceding built-in F6 capture entries
+are superseded by this one.
+
+### 2026-07-23 - Product-reference arm rest pose restored
+The supplied product photograph corresponds to XLeRobot's upstream ManiSkill
+`rest` keyframe. Reverted the E036-only Wrist_Pitch addition from 1.57 to 0 on
+both arms while retaining Rotation 0, Pitch 3.14, Elbow 3.14, Wrist_Roll 1.57,
+and closed jaws. Compiled qpos0, reset qpos, actuator targets, and selected-arm
+C reset now all agree on this exact tuple.
+
+Pitch/elbow and wrist candidate grids were rendered before selection. Exact
+12-joint state/target checks passed, with zero contacts initially and after
+0.5 s, finite dynamics, and under 0.019 rad maximum hold error after settling.
+The 48/151/20/20 composite XML was regenerated. This entry supersedes E036's
+Wrist_Pitch=1.57 interpretation.
+
+### 2026-07-23 - ClassroomXLeRobot registered as a native robosuite environment
+After another reported F6 screenshot-related arm change, a 10-second hold test
+showed the native model itself was stable (fixed <=0.019 rad hold error, zero
+contacts, zero residual velocity). Replaced the default custom GLFW/global
+pynput runtime with a registered MjSpec-backed `MujocoEnv` named
+`ClassroomXLeRobot`.
+
+The new environment is created by `robosuite.make()`, resets all folded qpos and
+position targets together, accepts the complete 20-actuator native action, and
+uses robosuite fixed-step simulation and passive-viewer lifecycle. Its launcher
+installs no keyboard device or key callback and holds an immutable reset action.
+`python -m classroom_robocasa.demo` now selects this path; the previous viewer
+is opt-in through `--legacy-keyboard`.
+
+Headless registration and command-entry tests passed. A 0.2-second external
+pause was bitwise state-inert, followed by 300 robosuite steps / 9.6 simulated
+seconds with finite state and zero contacts on the 48/151/20/20 composite.
+
+### 2026-07-23 - Fix XLeRobot arm meshes hidden by robosuite geom groups
+The initial native robosuite viewer hid geom group 0 under its default
+`render_collision_mesh=False`. XLeRobot's upstream arm meshes live in group 0,
+so only the group-1 jaws/tray remained visible. Set
+`ClassroomXLeRobot.render_collision_mesh=True` by default and pass it explicitly
+from the launcher. Furniture collision geometry stays isolated and hidden in
+group 3. An exact launcher-camera offscreen render confirmed all 18 named robot
+group-0 geoms and both complete arms are visible, with debug groups 2/3/4 still
+off by default.
