@@ -21,6 +21,7 @@ def set_friction_params(model, coeffs_by_joint: dict) -> None:
         coeffs_by_joint: mapping of joint_name -> dict with any subset of:
             "frictionloss"  (float) — Coulomb friction [N·m]
             "damping"       (float) — viscous damping  [N·m·s/rad]
+            "armature"      (float) — rotor inertia    [kg·m²]
 
     Example::
 
@@ -49,3 +50,5 @@ def set_friction_params(model, coeffs_by_joint: dict) -> None:
             model.dof_frictionloss[dof_adr] = float(coeffs["frictionloss"])
         if "damping" in coeffs:
             model.dof_damping[dof_adr] = float(coeffs["damping"])
+        if "armature" in coeffs:
+            model.dof_armature[dof_adr] = float(coeffs["armature"])
