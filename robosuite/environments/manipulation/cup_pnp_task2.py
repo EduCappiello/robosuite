@@ -7,6 +7,20 @@ from robosuite.utils.observables import Observable, sensor
 
 
 BREW_BUTTON = "brew_button"
+
+# (stiffness N/m, preload N). Force at the 6 mm end of travel = k*0.006 + preload.
+# "xml" is not listed: it means "leave the model's own 80 N/m alone" = 0.48 N, which is
+# below the 1.5-4 N design band. The presets are labelled starting points, not fitted
+# values -- replace them with the output of the fixture measurement once printed.
+BUTTON_PROFILES = {
+    "light":  (250.0, 0.0),    # 1.50 N at full travel
+    "medium": (333.0, 0.0),    # 2.00 N
+    "firm":   (500.0, 0.0),    # 3.00 N
+    "stiff":  (650.0, 0.0),    # 3.90 N
+    # Preload reaches the band while keeping the spring soft near the stop, which is closer
+    # to a real snap-fit button than a 650 N/m linear spring.
+    "preloaded": (250.0, 1.5),  # 3.00 N at full travel, 1.5 N already at rest
+}
 TOUCH_STYLUS_PARENT_BODY = "robot0_gripper"
 TOUCH_STYLUS_SHAFT_FROMTO = (
     -0.039,
@@ -208,6 +222,11 @@ class cupPnP_task2(SOARM101Lift):
         # already button_preload_n, which reaches the band without an absurd stiffness.
         button_stiffness=None,
         button_preload_n=0.0,
+        # Named starting points spanning the 1.5-4 N design band, so a run can be labelled
+        # without inventing numbers. "xml" is the default and changes nothing: it keeps the
+        # model's own 80 N/m (0.48 N at full travel). Replace the chosen preset with the
+        # fitted values from scripts_tmp/measure_button_fixture.py once the button is printed.
+        button_profile="xml",
         # --- optional click detent --------------------------------------------------
         click_detent=False,
         detent_travel_m=0.004,       # click point: resistive force peaks here
@@ -236,6 +255,19 @@ class cupPnP_task2(SOARM101Lift):
         self.press_hold_steps = max(1, int(press_hold_steps))
         self.button_stiffness = None if button_stiffness is None else float(button_stiffness)
         self.button_preload_n = float(button_preload_n)
+        self.button_profile = str(button_profile)
+        if self.button_profile != "xml":
+            if self.button_profile not in BUTTON_PROFILES:
+                raise ValueError(
+                    f"unknown button_profile {self.button_profile!r}; "
+                    f"known: {sorted(BUTTON_PROFILES)} plus 'xml'"
+                )
+            k, preload = BUTTON_PROFILES[self.button_profile]
+            # An explicit button_stiffness / button_preload_n always wins over the preset.
+            if self.button_stiffness is None:
+                self.button_stiffness = k
+            if self.button_preload_n == 0.0 and preload:
+                self.button_preload_n = preload
         self.click_detent = bool(click_detent)
         self.detent_travel_m = float(detent_travel_m)
         self.detent_drop_n = float(detent_drop_n)
@@ -367,6 +399,20 @@ class cupPnP_task2(SOARM101Lift):
         if getattr(self, "_brew_joint_qposadr", -1) < 0:
             return 0.0
         return float(self.sim.data.qpos[self._brew_joint_qposadr] - self._brew_joint_range[0])
+
+    def button_force_at_full_travel(self) -> float:
+        """Resistive force the button presents at the end of its travel: k*travel + preload.
+        Use this to confirm a run sits in the intended 1.5-4 N band."""
+        k = self.button_stiffness
+        if k is None:
+            import mujoco
+
+            m = self.sim.model._model
+            j = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT,
+                                  f"{self.coffee_machine.naming_prefix}{BREW_BUTTON}_joint")
+            k = float(m.jnt_stiffness[j])
+        travel = self._brew_joint_range[1] - self._brew_joint_range[0]
+        return float(k) * travel + self.button_preload_n
 
     def _apply_click_detent(self) -> None:
         """Extra resistive force that rises to a peak at the click point, then drops off.

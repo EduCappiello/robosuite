@@ -165,3 +165,34 @@ def test_wrist_ft_is_readable_and_travel_observable_exists():
     for name in ("brew_button_travel", "brew_button_pressed", "wrist_ft_force", "wrist_ft_torque"):
         assert name in obs, f"missing observable {name}"
     env.close()
+
+
+@pytest.mark.parametrize("profile,expected", [
+    ("light", 1.50), ("medium", 2.00), ("firm", 3.00), ("stiff", 3.90), ("preloaded", 3.00),
+])
+def test_button_profiles_land_in_the_1p5_to_4N_band(profile, expected):
+    env = _make(button_profile=profile)
+    f = env.button_force_at_full_travel()
+    assert f == pytest.approx(expected, rel=0.02)
+    assert 1.5 <= f <= 4.0, f"{profile} gives {f:.2f} N, outside the design band"
+    env.close()
+
+
+def test_default_profile_keeps_the_xml_0p48N():
+    env = _make()
+    assert env.button_profile == "xml"
+    # 80 N/m x 0.006 m = 0.48 N -- below the band, and deliberately still the default.
+    assert env.button_force_at_full_travel() == pytest.approx(0.48, rel=0.02)
+    env.close()
+
+
+def test_explicit_stiffness_overrides_the_profile():
+    env = _make(button_profile="firm", button_stiffness=100.0)
+    assert env.button_stiffness == 100.0
+    assert env.button_force_at_full_travel() == pytest.approx(0.60, rel=0.02)
+    env.close()
+
+
+def test_unknown_profile_is_rejected():
+    with pytest.raises(ValueError, match="unknown button_profile"):
+        _make(button_profile="squishy")
