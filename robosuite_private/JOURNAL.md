@@ -764,3 +764,79 @@ PHYSICAL; it corrupts the MEASURED τ_motor at folded poses (not the model).
   estimation/calibration when the user wires `filter_free` into their calibration loop.
 
 <!-- Append new dated entries below this line. -->
+
+### 2026-11-19 — `robosuite-soarm101` branch: SO-101 only, 1000 Hz physics, Patricia's coffee tasks, task2 as a press testbed
+
+**Branch.** `robosuite-soarm101` cut from `SOARM101@7421b91f`, pushed to `fork/robosuite-soarm101`.
+Clean separation from the xlerobot platform: no `XLeRobot` assets, zero `xlerobot` references in
+`robosuite/` or `robosuite_private/` (verified by grep, not assumed).
+
+**Rates.** `macros.SIMULATION_TIMESTEP` 0.002 → **0.001** (1000 Hz physics). The lerobot
+`robosuite_sim` driver's `control_freq` 30 → **500** (2 physics substeps per sample). Stable:
+max|qacc| 248.7, zero NaN over 2000 control steps plus a ±10° sine sweep, ~3.1× realtime.
+
+**Identified friction, with fallback.** `RobosuiteSimConfig.dynamics_robot_id` loads
+`<id>_dynamics.json` and maps the identified parameters onto MuJoCo: `viscous_B` → `dof_damping`,
+`coulomb_Fc` → `dof_frictionloss`. Missing file → XML defaults. `load_dependent_friction=True`
+(default) re-writes `dof_frictionloss = Fc + kappa*|G|` every control step (G from `qfrc_bias`),
+because MuJoCo caps the dof-velocity constraint by `frictionloss` — i.e. a hard Coulomb breakaway
+limit — so this reproduces the identified `coulomb_viscous_load_dep` model instead of dropping
+kappa. Measured on FT-02, empty → 200 g on the moving jaw: elbow 0.244 → 0.472 N·m, lift
+0.045 → 0.108 N·m, pan unchanged (no gravity torque about the vertical axis).
+
+**Armature — a claim I made and then retracted.** I first zeroed `dof_armature` on the five arm
+joints to "match the real EKF" (`e2449e29d`). That was wrong and I reverted it (`91fd7c2bd`).
+Checked against the source: `TheRobotStudio/SO-ARM100` `Simulation/SO101/joints_properties.xml`
+sets `armature="0.028"` on the **`sts3215` class**, i.e. every joint, because all six joints are
+the same STS3215 (1:345 gear train). 0.028 is physically plausible — reflected rotor inertia
+`J_rotor·N²` implies `J_rotor ≈ 2.4e-7 kg·m²`. The EKF's armature 0 is an **identifiability**
+choice (corr(τ−G, M·q̈) ≈ 0.03 in the 10 min log → unobservable), not a measurement that the
+armature is zero. Making the sim match an unobservable estimator parameter is backwards, and it
+broke the sim: the gripper's `<position kp="998.22">` actuator gives ω = √(998/M) = 189 rad/s at
+M = 0.028 (stable) but 7900 rad/s at M = 1.6e-5, far above the 1000 Hz Nyquist. A ±10° sine on
+lift+elbow, measured halfspan: **0.028 all six → 2.26°/2.08°; armature 0 on 5 joints →
+0.03°/0.07°** (70× worse). Softening the jaw joint limit (solref/solimp) does not recover it —
+the actuator gain is the cause. `zero_armature_joints` now defaults to `None` and `configure()`
+raises if anything zeroes the gripper.
+
+**Re-deriving link inertials is off the table.** The M needed for explicit-Euler stability at
+dt = 1e-3 exceeds the absolute upper bound (all distal subtree mass at the farthest reachable
+point) on **every** joint; wrist_roll's current 4.06e-5 already equals its bound 4.03e-5.
+
+**Cherry-picks.** Patricia's 7 (`s100179`): `3ef57aa8 ab3bebd2 45e0e164 6fe24a5a b89ce7d6
+4ab1898d 59a91a79`. Eduardo's desk-arm fixes: `fd780512` (e9180fa1, free-space GT residual
+identity), `6a26dce1` (bd0f36b4 — the `so101_gripper.xml` moving_jaw↔shoulder phantom-contact
+exclude only; the `sim_api.py` doc hunk documents `class XLeRobotSim`, which does not exist on
+this branch, so it was skipped). `b80153f0` = f25ee910's **`controller.py` hunk only**
+(`_compute_full_mass_matrix` caches the `mj_fullM` signature); `model_terms.py` probed per call
+too, so it got the same cached `_fullM` helper. **Zero conflicts** across all ten picks.
+`9859a1cc` touched no kp/kv/armature/frictionloss — only collision geometry — so the branch's
+gain and friction decisions were never in contention.
+
+**task2 is now a press testbed** (`4da24c54`). `success_mode="touch"` (default, legacy rule
+unchanged) | `"press"`: brew slide travel ≥ `press_travel_m` (0.004 of 0.006) and, if set, brew
+touch force ≥ `press_force_n`, held for `press_hold_steps`. Wrong-button rule and the 30 s
+timeout unchanged. `button_stiffness` / `button_preload_n` (via `model.qpos_spring` — MuJoCo 3.9
+has no `jnt_springref`): XML default 80 N/m × 6 mm = 0.48 N at full travel, far under the 1.5–4 N
+design band; 400 N/m + 1 N preload gives 3.4 N. Defaults deliberately keep the XML behaviour —
+the real value comes from the printed fixture, not a guess. `click_detent=True` adds a resistive
+force peaking at `detent_travel_m` then falling off; all state is per-env instance writing into
+that env's own `qfrc_applied` (the libero-force detent used one global slot and parallel envs
+clobbered each other). New observations: `brew_button_travel`, `brew_button_pressed`,
+`wrist_ft_force`, `wrist_ft_torque`, plus `read_wrist_ft()` for per-substep sampling — un-tared
+(empty gripper ≈ 0.97 N) and in the sensor site frame.
+
+**Verified.** Patricia's suite unmodified: **22 passed in 4.40 s** (9.2 s on `xlerobot-17dof`
+with the uncached probe). With the 8 new press tests: **30 passed in 7.25 s**. Smoke suite
+`scripts_tmp/sim_smoke_1000hz.py` T1–T7 ALL PASS, including the payload equivalence: the wrist
+force tensor tracks added jaw mass at **9.810 N/kg, R² = 1.0000** (the site-frame `fz` slope is
+8.79–9.02 because the sensor site z-axis is ~25° off vertical — projection, not a missing load
+path). Rest contacts in the merged scene: 39, **zero robot-involved**.
+
+**Open gaps.** G5 actuator fidelity is the big one: robosuite's `JOINT_POSITION` applies
+`τ = M(q)·(kp·e − kv·q̇) + g_comp`, so kp is an acceleration gain and the arm realises only
+1.25°/4.36° of a 10° command; nothing of the Feetech firmware PID (internal loop, dead-band,
+12-bit encoder) is modelled. Also: the merged init pose puts `shoulder_lift` at −99.4° inside a
+±100° range, i.e. 0.6° from its lower limit, so pose-dependent tests must command from mid-range.
+`ground_truth.ext.tcp_wrist_ft` is privileged and un-tared; the real FT-02 has no wrist sensor at
+all. Contact-rich effects (grasp, table reaction) are absent from the free-space numbers.
