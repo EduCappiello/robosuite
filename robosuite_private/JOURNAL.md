@@ -840,3 +840,19 @@ path). Rest contacts in the merged scene: 39, **zero robot-involved**.
 ±100° range, i.e. 0.6° from its lower limit, so pose-dependent tests must command from mid-range.
 `ground_truth.ext.tcp_wrist_ft` is privileged and un-tared; the real FT-02 has no wrist sensor at
 all. Contact-rich effects (grasp, table reaction) are absent from the free-space numbers.
+
+**Same day, three follow-ups.**
+- **G5 closed, and it was never a controller-form problem.** kp/kv are acceleration gains scaled
+  by local inertia, so with M ≈ 0.03 the explicit-Euler ceiling at dt = 1e-3 is kp < 12000,
+  kv < 60. The old 100/20 was ~1 % of that. Retuned to **kp 2400 / kv 50** (lerobot `32344e54d`):
+  ±10° halfspan 3.22/6.27 → **9.68/9.79°**, rms error 5.60 → 1.51°, max|q_acc| 35.4, ~3× realtime.
+  Smoke T5 now asserts halfspan > 8°. kp 8000/kv 59 reaches 9.97/10.01 but sits at the kv ceiling.
+- **`button_profile`** presets: light 1.50 / medium 2.00 / firm 3.00 / stiff 3.90 / preloaded
+  3.00 N at full travel; default `"xml"` (0.48 N) unchanged; explicit stiffness/preload override.
+  `button_force_at_full_travel()` asserts the band. Press tests 16; 38 passed total.
+- **First estimator grading vs sim truth** (`scripts_tmp/sim_grade_estimators.py`): EKF corr
+  0.60/0.96/0.85/0.94/0.85, LPF 0.33/0.98/0.91/0.97/0.96 (pan/lift/elbow/wf/wr). The 200 g payload
+  step is detected with the right sign on every joint but **overestimated 29–145 %** (lift
+  −0.691 gt → −0.891 EKF; elbow −0.378 → −0.665 EKF / −0.927 LPF). Undiagnosed: the two candidates
+  are the load-dependent friction term and the armature 0.028 the EKF does not model. NEXT is not a
+  pipeline method (valid: ekf, lpf) — grading it against this stream is still open.
