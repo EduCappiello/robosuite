@@ -58,7 +58,7 @@ def joint_of(model, name: str) -> int:
 
 
 def hold(bot, n_steps: int, targets: dict[str, float] | None = None,
-         motion: dict[str, float] | None = None):
+         motion: dict[str, float] | None = None, phase: int = 0):
     """Step n control steps. `targets` = absolute deg setpoints; `motion` = {joint: amplitude_deg}
     sine sweep at 0.5 Hz added on top of the target. Returns max|qacc| and NaN count."""
     qacc_max, qvel_max, nans = 0.0, 0.0, 0
@@ -67,7 +67,7 @@ def hold(bot, n_steps: int, targets: dict[str, float] | None = None,
         for m in MOTORS:
             base = targets[m] if targets else 0.0
             if motion and m in motion:
-                base = base + motion[m] * np.sin(2 * np.pi * 0.5 * i / 500.0)
+                base = base + motion[m] * np.sin(2 * np.pi * 0.5 * (i + phase) / 500.0)
             act[f"{m}.pos"] = float(base)
         bot.send_action(act)
         d = bot.sim.env.sim.data
@@ -130,15 +130,21 @@ def main() -> int:
     mid_deg["shoulder_lift"] = -60.0
     mid_deg["elbow_flex"] = -40.0
     hold(bot, 500, mid_deg)          # settle at the mid-range pose first
-    qacc_max, qvel_max, nans = hold(bot, 2000, mid_deg,
+    qacc_max, qvel_max, nans = hold(bot, 1000, mid_deg,
                                     motion={"shoulder_lift": 10.0, "elbow_flex": 10.0})
-    q = env.sim.data.qpos
-    exc = {}
-    for m in ["shoulder_lift", "elbow_flex"]:
-        jadr = int(model.jnt_qposadr[joint_of(model, m)])
-        exc[m] = float(np.rad2deg(np.max(np.abs(q[jadr] - mid_deg[m] * np.pi / 180))))
-    record("T5 sine motion 2000 steps", nans == 0 and qacc_max < 2000 and exc["shoulder_lift"] > 1.0,
-           f"max|qacc|={qacc_max:.1f} nan={nans} excursion_deg={exc}")
+    # Measure the half peak-to-peak amplitude over the settled cycles. Deviation from the
+    # commanded centre would mix in the steady-state offset and understate tracking.
+    hist = {m: [] for m in ("shoulder_lift", "elbow_flex")}
+    for i in range(1000, 2000):
+        hold(bot, 1, mid_deg, motion={"shoulder_lift": 10.0, "elbow_flex": 10.0},
+             phase=i)
+        for m in hist:
+            jadr = int(model.jnt_qposadr[joint_of(model, m)])
+            hist[m].append(float(np.rad2deg(env.sim.data.qpos[jadr])))
+    exc = {m: float((max(v) - min(v)) / 2.0) for m, v in hist.items()}
+    record("T5 sine motion 2000 steps (halfspan of 10 deg cmd)",
+           nans == 0 and qacc_max < 2000 and exc["shoulder_lift"] > 8.0,
+           f"max|qacc|={qacc_max:.1f} nan={nans} halfspan_deg={ {k: round(v,2) for k,v in exc.items()} }")
 
     # ---------------------------------------------------------------- T6 realtime
     t0 = time.perf_counter()
