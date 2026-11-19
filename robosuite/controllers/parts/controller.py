@@ -6,6 +6,29 @@ import numpy as np
 
 import robosuite.macros as macros
 
+# mj_fullM's signature changed across mujoco versions. Probing it with try/except on every
+# call is ruinously expensive: the failing call raises a pybind11 TypeError whose message
+# repr()s the full mass matrix, costing milliseconds *per controller update* (it was the
+# single largest cost in the step loop, ~75 ms/step -> 12 Hz teleop). Resolve once, cache.
+_MJ_FULLM_TAKES_DATA = None
+
+
+def _compute_full_mass_matrix(model, data, dst):
+    """Fill `dst` with the dense mass matrix, using whichever mj_fullM signature this
+    mujoco build exposes. The signature probe runs at most once per process."""
+    global _MJ_FULLM_TAKES_DATA
+    if _MJ_FULLM_TAKES_DATA is None:
+        try:
+            mujoco.mj_fullM(model._model, data._data, dst)
+            _MJ_FULLM_TAKES_DATA = True
+            return
+        except TypeError:
+            _MJ_FULLM_TAKES_DATA = False
+    if _MJ_FULLM_TAKES_DATA:
+        mujoco.mj_fullM(model._model, data._data, dst)
+    else:
+        mujoco.mj_fullM(model._model, dst, data.qM)
+
 
 class Controller(object, metaclass=abc.ABCMeta):
     """
@@ -224,10 +247,7 @@ class Controller(object, metaclass=abc.ABCMeta):
             self.joint_vel = np.array(self.sim.data.qvel[self.qvel_index])
 
             mass_matrix = np.ndarray(shape=(self.sim.model.nv, self.sim.model.nv), dtype=np.float64, order="C")
-            try:
-                mujoco.mj_fullM(self.sim.model._model, self.sim.data._data, mass_matrix)
-            except TypeError:
-                mujoco.mj_fullM(self.sim.model._model, mass_matrix, self.sim.data.qM)
+            _compute_full_mass_matrix(self.sim.model, self.sim.data, mass_matrix)
             mass_matrix = np.reshape(mass_matrix, (len(self.sim.data.qvel), len(self.sim.data.qvel)))
             self.mass_matrix = mass_matrix[self.qvel_index, :][:, self.qvel_index]
 

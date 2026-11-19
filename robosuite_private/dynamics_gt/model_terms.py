@@ -24,6 +24,29 @@ from __future__ import annotations
 
 import numpy as np
 
+# mj_fullM's signature changed across mujoco builds. Probing it with try/except on every
+# call is ruinously expensive: the failing call raises a pybind11 TypeError whose message
+# repr()s the whole mass matrix. Resolve the signature at most once per process and cache it
+# (same fix as robosuite/controllers/parts/controller.py::_compute_full_mass_matrix).
+_MJ_FULLM_TAKES_DATA = None
+
+
+def _fullM(model, data, dst) -> None:
+    """Fill `dst` with the dense mass matrix using this build's mj_fullM signature."""
+    global _MJ_FULLM_TAKES_DATA
+    import mujoco
+    if _MJ_FULLM_TAKES_DATA is None:
+        try:
+            mujoco.mj_fullM(model, data, dst)
+            _MJ_FULLM_TAKES_DATA = True
+            return
+        except TypeError:
+            _MJ_FULLM_TAKES_DATA = False
+    if _MJ_FULLM_TAKES_DATA:
+        mujoco.mj_fullM(model, data, dst)
+    else:
+        mujoco.mj_fullM(model, dst, data.qM)
+
 
 def _arm_dof_indices(robot) -> list[int]:
     """Return nv-space DOF indices for all 6 joints (arm then gripper).
@@ -79,10 +102,7 @@ def compute_model_terms(model, data, robot) -> dict:
     # ---- tau_inertial  (M(q) @ qacc) -------------------------------------
     nv = model.nv
     M = np.zeros((nv, nv), dtype=np.float64)
-    try:
-        mujoco.mj_fullM(model, data, M)
-    except TypeError:
-        mujoco.mj_fullM(model, M, data.qM)
+    _fullM(model, data, M)
     tau_inertial = (M @ np.array(data.qacc))[dof_idx].astype(np.float64)
 
     # ---- tau_friction  (reconstruct, do NOT use qfrc_constraint) ---------
