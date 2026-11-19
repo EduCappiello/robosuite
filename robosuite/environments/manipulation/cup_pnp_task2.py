@@ -190,6 +190,28 @@ class cupPnP_task2(SOARM101Lift):
         cup_start_yaw_deg=0.0,
         button_contact_threshold=1e-4,
         no_touch_timeout_s=30.0,
+        # --- press semantics (2026-11-19) -------------------------------------------
+        # "touch" is Patricia's original rule: stylus-tip contact on the brew button with
+        # touch force >= button_contact_threshold. It scores *reaching* the button.
+        # "press" additionally requires the button to actually travel (and optionally to
+        # carry a real force), held for press_hold_steps. Default keeps legacy behaviour
+        # so existing tests and recorded rollouts stay valid.
+        success_mode="touch",
+        press_travel_m=0.004,        # of the 0.006 m total travel
+        press_force_n=None,          # None = travel only; set e.g. 1.5-4.0 for a real press
+        press_hold_steps=5,
+        # --- button force-travel ----------------------------------------------------
+        # XML default is stiffness=80 N/m x 0.006 m = 0.48 N at full travel, far below the
+        # 1.5-4 N design band. Nothing here is a hard-coded guess of the real fixture:
+        # leave button_stiffness=None to keep the XML value and set it once the printed
+        # button is measured. preload is applied via jnt_springref so force at q=0 is
+        # already button_preload_n, which reaches the band without an absurd stiffness.
+        button_stiffness=None,
+        button_preload_n=0.0,
+        # --- optional click detent --------------------------------------------------
+        click_detent=False,
+        detent_travel_m=0.004,       # click point: resistive force peaks here
+        detent_drop_n=1.0,           # peak extra resistance at the click point [N]
         cart_full_size=(0.35, 0.45, 0.04),
         cart_top_height=0.72,
         main_table_top_height=0.865,
@@ -206,6 +228,27 @@ class cupPnP_task2(SOARM101Lift):
         self.cup_start_yaw_deg = float(cup_start_yaw_deg)
         self.button_contact_threshold = float(button_contact_threshold)
         self.no_touch_timeout_s = float(no_touch_timeout_s)
+        if success_mode not in ("touch", "press"):
+            raise ValueError(f"success_mode must be 'touch' or 'press', got {success_mode!r}")
+        self.success_mode = success_mode
+        self.press_travel_m = float(press_travel_m)
+        self.press_force_n = None if press_force_n is None else float(press_force_n)
+        self.press_hold_steps = max(1, int(press_hold_steps))
+        self.button_stiffness = None if button_stiffness is None else float(button_stiffness)
+        self.button_preload_n = float(button_preload_n)
+        self.click_detent = bool(click_detent)
+        self.detent_travel_m = float(detent_travel_m)
+        self.detent_drop_n = float(detent_drop_n)
+        self._press_streak = 0
+        self._pressed = False
+        self._brew_travel_m = 0.0
+        self._brew_force_n = 0.0
+        self._brew_joint_qposadr = -1
+        self._brew_joint_range = (0.0, 0.006)
+        # Per-INSTANCE detent state. The libero-force detent had a single global registry
+        # slot, so parallel envs silently overwrote each other's detents. Everything here
+        # lives on self and writes into self.sim.data, which is per-env by construction.
+        self._detent_dofs = []
         self.button_timeout_steps = max(1, int(round(self.no_touch_timeout_s * control_freq)))
         self._brew_button_hit = False
         self._wrong_button_hit = False
@@ -281,6 +324,76 @@ class cupPnP_task2(SOARM101Lift):
         self._stylus_tip_geom_id = self.sim.model.geom_name2id(
             "task2_touch_stylus_tip_collision"
         )
+        self._configure_buttons()
+
+    def _configure_buttons(self) -> None:
+        """Apply button_stiffness / button_preload_n / click_detent to the seven slide joints.
+
+        The XML gives stiffness=80 N/m over 0.006 m = 0.48 N at full travel. The design band
+        for Eduardo's real task is 1.5-4 N (the SO-101 sustains ~5 N; the real FT-02 force
+        estimate resolves ~0.5 N), so either raise stiffness (~400 N/m for 2.5 N at full
+        travel) or add a preload via jnt_springref. Preload is the better knob: it sets the
+        force at q=0 without making the spring absurdly stiff near the stop.
+        """
+        import mujoco
+
+        prefix = self.coffee_machine.naming_prefix
+        model = self.sim.model._model
+        for name in BUTTON_NAMES:
+            jnt = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, f"{prefix}{name}_joint")
+            if jnt < 0:
+                continue
+            if self.button_stiffness is not None:
+                model.jnt_stiffness[jnt] = self.button_stiffness
+            if abs(self.button_preload_n) > 0.0:
+                # Spring force is -k*(q - qpos_spring); at q=0 that is +k*qpos_spring. We want
+                # it to *resist* pressing (pressing moves q positive), so qpos_spring is negative.
+                k = float(model.jnt_stiffness[jnt])
+                if k <= 0.0:
+                    raise ValueError(
+                        f"button_preload_n={self.button_preload_n} needs a positive joint "
+                        f"stiffness, but {name} has {k}. Set button_stiffness too."
+                    )
+                model.qpos_spring[int(model.jnt_qposadr[jnt])] = -self.button_preload_n / k
+            if name == BREW_BUTTON:
+                self._brew_joint_qposadr = int(model.jnt_qposadr[jnt])
+                self._brew_joint_range = tuple(float(v) for v in model.jnt_range[jnt])
+            if self.click_detent:
+                self._detent_dofs.append((int(model.jnt_dofadr[jnt]), name))
+
+    def _brew_travel(self) -> float:
+        # getattr, not a plain attribute: Patricia's outcome test builds the env with
+        # cupPnP_task2.__new__(...) and sets only the fields it exercises.
+        if getattr(self, "_brew_joint_qposadr", -1) < 0:
+            return 0.0
+        return float(self.sim.data.qpos[self._brew_joint_qposadr] - self._brew_joint_range[0])
+
+    def _apply_click_detent(self) -> None:
+        """Extra resistive force that rises to a peak at the click point, then drops off.
+
+        Written into qfrc_applied on this env's own MjData, so parallel envs cannot clobber
+        each other (the bug that bit the libero-force detent, which used one global slot).
+        """
+        if not self._detent_dofs:
+            return
+        data = self.sim.data._data
+        span = max(1e-9, self._brew_joint_range[1] - self._brew_joint_range[0])
+        for dof, _name in self._detent_dofs:
+            q = float(data.qpos[int(self.sim.model._model.jnt_dofadr[dof])])
+            travel = q - self._brew_joint_range[0]
+            if travel <= 0.0:
+                data.qfrc_applied[dof] = 0.0
+            elif travel < self.detent_travel_m:
+                # rising: resistance grows to detent_drop_n at the click point
+                data.qfrc_applied[dof] = -self.detent_drop_n * (travel / self.detent_travel_m)
+            else:
+                # past the click: the detent gives way, force falls off to zero at full travel
+                over = (travel - self.detent_travel_m) / max(1e-9, span - self.detent_travel_m)
+                data.qfrc_applied[dof] = -self.detent_drop_n * max(0.0, 1.0 - over)
+
+    def step(self, action):
+        self._apply_click_detent()
+        return super().step(action)
 
         missing_sensors = [
             name
@@ -346,15 +459,38 @@ class cupPnP_task2(SOARM101Lift):
             self._wrong_button_hit = True
         elif brew_touched and not self._wrong_button_hit:
             self._brew_button_hit = True
+        self._update_press_state()
+
+    def _update_press_state(self) -> None:
+        """Press = the brew button actually travelled (and optionally carried enough force),
+        held for press_hold_steps. Wrong-button and timeout rules are unchanged."""
+        if getattr(self, "success_mode", "touch") != "press":
+            return          # legacy rule only; keeps the __new__-built fixture working
+        brew_force = float(self._read_button_forces().get(BREW_BUTTON, 0.0))
+        self._brew_force_n = brew_force
+        self._brew_travel_m = self._brew_travel()
+        travel_ok = self._brew_travel_m >= self.press_travel_m
+        force_ok = self.press_force_n is None or brew_force >= self.press_force_n
+        if travel_ok and force_ok and not self._wrong_button_hit:
+            self._press_streak += 1
+        else:
+            self._press_streak = 0
+        if self._press_streak >= self.press_hold_steps:
+            self._pressed = True
+
+    def _goal_reached(self) -> bool:
+        return self._pressed if getattr(self, "success_mode", "touch") == "press" \
+            else self._brew_button_hit
+
     @property
     def task_success(self):
-        return self._brew_button_hit and not self._wrong_button_hit
+        return self._goal_reached() and not self._wrong_button_hit
 
     @property
     def task_failed(self):
         no_touch_timeout = (
             self._button_steps >= self.button_timeout_steps
-            and not self._brew_button_hit
+            and not self._goal_reached()
         )
         return self._wrong_button_hit or no_touch_timeout
 
@@ -413,11 +549,31 @@ class cupPnP_task2(SOARM101Lift):
         def wrong_button_hit(obs_cache):
             return np.array([float(self._wrong_button_hit)])
 
+        @sensor(modality=modality)
+        def brew_button_travel(obs_cache):
+            return np.array([self._brew_travel_m], dtype=float)
+
+        @sensor(modality=modality)
+        def brew_button_pressed(obs_cache):
+            return np.array([float(self._pressed)])
+
+        @sensor(modality=modality)
+        def wrist_ft_force(obs_cache):
+            return self.read_wrist_ft()["force"]
+
+        @sensor(modality=modality)
+        def wrist_ft_torque(obs_cache):
+            return self.read_wrist_ft()["torque"]
+
         for observable_sensor in (
             brew_button_force,
             max_wrong_button_force,
             brew_button_hit,
             wrong_button_hit,
+            brew_button_travel,
+            brew_button_pressed,
+            wrist_ft_force,
+            wrist_ft_torque,
         ):
             observables[observable_sensor.__name__] = Observable(
                 name=observable_sensor.__name__,
@@ -426,10 +582,41 @@ class cupPnP_task2(SOARM101Lift):
             )
         return observables
 
+    def read_wrist_ft(self) -> dict:
+        """Raw wrist force/tensor wrench, straight from sim.data.sensordata.
+
+        The MuJoCo sensors robot0_wrist_ft_force / robot0_wrist_ft_torque exist in the model
+        but robosuite does not expose them as observations. This reads them live, so a 500 Hz
+        logger can sample them once per physics substep without going through the observable
+        sampler (which runs at control_freq). Un-tared: with an empty gripper it reads the
+        gripper's own weight (~0.97 N), and the components are in the sensor site frame.
+        """
+        out = {"force": np.zeros(3), "torque": np.zeros(3)}
+        # _setup_observables() probes every sensor with {} BEFORE the robot is fully wired up,
+        # at which point self.robots[0] is a placeholder without naming_prefix. Fall back to
+        # the default prefix and let the sensor-id lookup below no-op if it is not there yet.
+        prefix = getattr(self.robots[0], "naming_prefix", "") if self.robots else ""
+        prefix = prefix or "robot0_"
+        for key, suffix in (("force", "wrist_ft_force"), ("torque", "wrist_ft_torque")):
+            try:
+                sid = self.sim.model.sensor_name2id(f"{prefix}{suffix}")
+            except Exception:
+                continue
+            if sid < 0:
+                continue
+            adr = int(self.sim.model.sensor_adr[sid])
+            dim = int(self.sim.model.sensor_dim[sid])
+            out[key] = np.array(self.sim.data.sensordata[adr : adr + dim], dtype=float)
+        return out
+
     def _reset_internal(self):
         self._brew_button_hit = False
         self._wrong_button_hit = False
         self._button_steps = 0
+        self._press_streak = 0
+        self._pressed = False
+        self._brew_travel_m = 0.0
+        self._brew_force_n = 0.0
         super()._reset_internal()
         self._reset_cup_to_coffee_start()
 
