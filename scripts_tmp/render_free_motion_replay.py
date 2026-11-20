@@ -43,6 +43,11 @@ def main():
     ap.add_argument("--start", type=float, default=30.0)
     ap.add_argument("--every", type=int, default=8, help="render every Nth step (250/8 ~= 31 fps)")
     ap.add_argument("--out", default="outputs/next_free/replay_render.mp4")
+    ap.add_argument("--sim-hz", type=int, default=0,
+                    help="sim control rate; 0 = same as --hz. The original driver default "
+                         "was 30 Hz with kp=100/kv=20; it is now 500 Hz with kp=2400/kv=50.")
+    ap.add_argument("--kp", type=float, default=None)
+    ap.add_argument("--kv", type=float, default=None)
     ap.add_argument("--no-render", action="store_true",
                     help="run the replay and the stats without touching a GL context "
                          "(CPU-only smoke test; no GPU needed)")
@@ -54,15 +59,28 @@ def main():
     s["t"] = np.asarray(s["t"], float) - float(np.asarray(s["t"], float)[0])
     s["keep"] = np.ones((len(s["t"]), 6))
     st = at_hz(s, a.hz)
-    i0 = int(a.start * a.hz)
-    n = int(a.seconds * a.hz)
 
+    sim_hz = a.sim_hz or int(a.hz)
+    kw = {}
+    if a.kp is not None:
+        kw["kp"] = a.kp
+    if a.kv is not None:
+        kw["kv"] = a.kv
     bot = RobosuiteSimFollower(RobosuiteSimConfig(
-        id="render", control_freq=int(a.hz), cameras=(), dynamics_robot_id="FT-02",
-        emit_ground_truth=True, clear_task_objects=True))
+        id="render", control_freq=sim_hz, cameras=(), dynamics_robot_id="FT-02",
+        emit_ground_truth=True, clear_task_objects=True, **kw))
     bot.connect()
     m, d = bot._model, bot._data
 
+    # The log is read at --hz for the estimator-rate view, but the sim must be commanded at
+    # ITS control rate, otherwise a 250 Hz command into a 30 Hz controller is not a replay at
+    # 30 Hz, it is a 250 Hz command the controller never sees.
+    sim_hz = a.sim_hz or int(a.hz)
+    sc = at_hz(s, float(sim_hz))
+    i0c = int(a.start * sim_hz)
+    nc = int(a.seconds * sim_hz)
+    i0 = int(a.start * a.hz)
+    n = int(a.seconds * a.hz)
     qadr = [int(m.jnt_qposadr[mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, f"robot0_{x}")])
             for x in MOTORS]
     lim = float(np.max(np.abs(m.actuator_ctrlrange[:5])))
@@ -103,7 +121,8 @@ def main():
         return img
 
     out = Path(a.out); out.parent.mkdir(parents=True, exist_ok=True)
-    w = (imageio_ffmpeg.write_frames(str(out), (a.width * 2, a.height), fps=a.hz / a.every,
+    eff_every = max(1, int(round(sim_hz / a.hz * a.every)))
+    w = (imageio_ffmpeg.write_frames(str(out), (a.width * 2, a.height), fps=sim_hz / eff_every,
                                     codec="libx264", pix_fmt_in="bgr24",
                                     output_params=["-crf", "22", "-preset", "veryfast"])
               if do_render else None)
@@ -111,19 +130,19 @@ def main():
         w.send(None)
 
     def cmd_at(i):
-        p = st["pos"][i]
+        p = sc["pos"][i]
         g = {f"{x}.pos": float(p[j]) for j, x in enumerate(MOTORS)}
         g["gripper.pos"] = float(np.clip((p[5] + 10) / 1.1, 0.0, 100.0))
         return g
 
     for _ in range(HISTORY):
-        bot.send_action(cmd_at(i0))
+        bot.send_action(cmd_at(i0c))
 
     sat_steps = 0
     gaps = []
-    for i in range(n):
-        bot.send_action(cmd_at(i0 + i))
-        if i % a.every:
+    for i in range(nc):
+        bot.send_action(cmd_at(i0c + i))
+        if i % max(1, int(round(sim_hz / a.hz * a.every))):
             continue
         left = shot() if do_render else None
         # Right view: the pose the recording asked for, set directly (no controller).
@@ -131,7 +150,7 @@ def main():
         # teleported the arm to, and the replay silently stops being a replay.
         keep_q = d.qpos.copy(); keep_v = d.qvel.copy(); keep_a = d.qacc.copy()
         for j in range(6):
-            d.qpos[qadr[j]] = np.deg2rad(st["pos"][i0 + i, j])
+            d.qpos[qadr[j]] = np.deg2rad(sc["pos"][i0c + i, j])
         mujoco.mj_forward(m, d)
         right = shot() if do_render else None
         d.qpos[:] = keep_q; d.qvel[:] = keep_v; d.qacc[:] = keep_a
@@ -140,11 +159,11 @@ def main():
         sat = bool(np.any(np.abs(tau[:5]) >= 0.995 * lim))
         sat_steps += int(sat)
         gap = float(np.max(np.abs(np.degrees([d.qpos[qadr[j]] for j in range(5)])
-                                  - st["pos"][i0 + i, :5])))
+                                  - sc["pos"][i0c + i, :5])))
         gaps.append(gap)
         if not do_render:
             continue
-        tag = f"t={i / a.hz:5.2f}s  max gap {gap:6.1f} deg  |tau|>=limit: {'YES' if sat else 'no'}"
+        tag = f"t={i / sim_hz:5.2f}s  max gap {gap:6.1f} deg  |tau|>=limit: {'YES' if sat else 'no'}"
         if not do_render:
             continue
         frame = np.hstack([
@@ -156,7 +175,9 @@ def main():
     if do_render:
         w.close()
     bot.disconnect()
-    print(f"wrote {out}  ({n // a.every} frames)")
+    print(f"sim control {sim_hz} Hz kp={bot.config.kp} kv={bot.config.kv}; "
+          f"log read at {a.hz:.0f} Hz")
+    print(f"wrote {out}  ({len(gaps)} frames)")
     print(f"saturated frames {sat_steps}/{len(gaps)}  max gap {max(gaps):.1f} deg  "
           f"mean gap {np.mean(gaps):.1f} deg")
 
