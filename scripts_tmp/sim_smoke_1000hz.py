@@ -260,6 +260,8 @@ def main() -> int:
            f"rel err={rel_wz:.3f}); site-frame fz slope={sl_site:+.3f} "
            f"(R^2-limited: {fit(lambda r: r[1])[2]:.4f})")
 
+    t8_provenance(bot2, record)
+
     print("\n" + "=" * 78)
     print(f"{'TEST':38} {'RESULT':7} DETAIL")
     print("-" * 78)
@@ -270,6 +272,29 @@ def main() -> int:
     print("VERDICT:", "ALL TESTS PASSED" if n_fail == 0 else f"{n_fail} TEST(S) FAILED")
     bot2.disconnect()
     return 0 if n_fail == 0 else 1
+
+
+
+def t8_provenance(bot, record):
+    """Problem 7: the run must state where its dynamics came from, and whether that is
+    independent of the estimator under test. A sim built from the estimator's own fit
+    cannot rank estimators -- it grades the model-based one against its own model."""
+    prov = getattr(bot, "dynamics_provenance", None)
+    ok = isinstance(prov, dict) and "independent_of_estimator" in prov \
+        and bool(prov.get("valid_for")) and bool(prov.get("invalid_for"))
+    record("T8 dynamics provenance is declared", ok,
+           f"source={prov.get('source') if prov else None} "
+           f"independent={prov.get('independent_of_estimator') if prov else None}")
+
+    # The identified source MUST be flagged as non-independent: it is the same calibration
+    # the real-robot EKF consumes, so grading the EKF against it is grading it against its
+    # own model. If this ever flips to True, the ranking becomes meaningful again.
+    from lerobot.robots.robosuite_sim.robosuite_sim import _friction_from_dynamics_json
+    _, _, prov_id = _friction_from_dynamics_json("FT-02")
+    record("T8b identified source flagged non-independent",
+           prov_id.get("independent_of_estimator") is False,
+           f"independent={prov_id.get('independent_of_estimator')} "
+           f"calibrated={prov_id.get('calibrated_at_utc')}")
 
 
 if __name__ == "__main__":
