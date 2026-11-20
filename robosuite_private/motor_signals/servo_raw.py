@@ -28,7 +28,7 @@ import numpy as np
 from robosuite_private.robot_spec import canonical as _canonical
 
 
-def to_servo_raw(signals: dict, *, spec=_canonical) -> dict:
+def to_servo_raw(signals: dict, *, spec=_canonical, quantize: bool = True) -> dict:
     """
     Map an SI read_motor_signals() dict to raw STS3215 registers.
 
@@ -37,6 +37,9 @@ def to_servo_raw(signals: dict, *, spec=_canonical) -> dict:
                  (= joint torque / SERVO_FORCE_RANGE[1], dimensionless).
         spec: module/object exposing the STS3215_* constants and
               SERVO_FORCE_RANGE (defaults to robot_spec.canonical).
+        quantize: round the current register to integer ADC counts and the position to the
+                  12-bit encoder step. True by default because that is what the hardware
+                  reports; set False only to reproduce pre-2026-11-20 behaviour.
 
     Returns:
         dict with keys pos_deg, vel_deg_s, current_raw, load_raw.
@@ -60,13 +63,29 @@ def to_servo_raw(signals: dict, *, spec=_canonical) -> dict:
     # Unsigned raw current register; polarity is carried separately by load_raw.
     current_raw = np.abs(i_A) * 1000.0 / spec.STS3215_CURRENT_RAW_TO_mA
 
+    # *** QUANTIZATION (Problem 3, physically correct) ***
+    # These registers are not continuous. The current register is an integer ADC count and
+    # the position sensor is 12-bit over 360 deg (datasheet 6-6 / 7-8: 0.088 deg/pulse,
+    # 360/4095). A data-driven estimator trained on the real bus sees those steps; feeding
+    # it a smooth sim signal is out-of-distribution and flatters it. Quantize at the
+    # register boundary, which is where the physics quantizes -- not by smoothing the
+    # estimator afterwards.
+    #   current: 1 LSB = 65.45 mA -> 0.0713 N*m at the joint (matches the 0.071 N*m step
+    #            measured on the FT-02 bus).
+    #   position: 0.088 deg.
+    # This is a bounded error (+/-0.5 LSB), NOT a scale error: the R6 round-trip property
+    # still holds to within half a least count.
+    if quantize:
+        current_raw = np.round(current_raw)
+        pos_deg = np.round(np.degrees(pos) / spec.ENCODER_STEP_DEG) * spec.ENCODER_STEP_DEG
+
     # Sign-magnitude load register.  Feetech load opposes motor torque, so the
     # estimator recovers motor sign as −sign(load_raw); with load ∝ +torque that
     # means load_raw = −load·1000 (a zero leaves the estimator to fall back to dq).
     load_raw = -load * 1000.0
 
     return {
-        "pos_deg": np.degrees(pos),
+        "pos_deg": pos_deg if quantize else np.degrees(pos),
         "vel_deg_s": np.degrees(vel),
         "current_raw": current_raw.astype(np.float64),
         "load_raw": load_raw.astype(np.float64),

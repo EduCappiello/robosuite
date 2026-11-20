@@ -13,6 +13,7 @@ import pytest
 
 from robosuite_private.motor_signals import to_servo_raw
 from robosuite_private.robot_spec import (
+    ENCODER_STEP_DEG,
     SERVO_FORCE_RANGE,
     STS3215_CURRENT_RAW_TO_mA,
     STS3215_GEAR_RATIO,
@@ -55,11 +56,15 @@ def test_servo_raw_schema():
 
 
 def test_servo_raw_angle_units():
-    """pos_deg / vel_deg_s are the SI radians inputs converted to degrees."""
+    """pos_deg / vel_deg_s are the SI radians inputs converted to degrees.
+
+    pos_deg is snapped to the 12-bit encoder least count (0.0879 deg, datasheet 7-8), so the
+    tolerance is one least count -- the hardware cannot report anything finer.
+    """
     pos = np.array([0.0, np.pi / 2, -np.pi, 0.1, -0.1, 0.0])
     vel = np.array([1.0, -1.0, 0.0, 2.0, -2.0, 0.5])
     out = to_servo_raw(_make_signals(pos, vel, np.zeros(6)))
-    np.testing.assert_allclose(out["pos_deg"], np.degrees(pos))
+    np.testing.assert_allclose(out["pos_deg"], np.degrees(pos), atol=ENCODER_STEP_DEG)
     np.testing.assert_allclose(out["vel_deg_s"], np.degrees(vel))
 
 
@@ -83,7 +88,33 @@ def test_servo_raw_torque_roundtrip():
 
     tau_recovered = _lerobot_forward_torque(out["current_raw"], out["load_raw"], dq=dq)
     tau_joint = load * SERVO_FORCE_RANGE[1]  # the original joint torque [N·m]
-    np.testing.assert_allclose(tau_recovered, tau_joint, atol=1e-9)
+    # The current register is an INTEGER ADC count, so the round-trip is exact only to
+    # within half a least count: 0.5 * 0.0713 N*m = 0.0357 N*m. That is a bounded
+    # quantization error, not the multiplicative scale error this test guards against (R6).
+    half_lsb_nm = 0.5 * STS3215_CURRENT_RAW_TO_mA * 1e-3 * (STS3215_TORQUE_CONSTANT_mNm_PER_A * 1e-3) / STS3215_GEAR_RATIO
+    np.testing.assert_allclose(tau_recovered, tau_joint, atol=half_lsb_nm + 1e-9)
+
+    # With quantization disabled the inverse is exact -- proves the tolerance above is
+    # quantization and not a scale error.
+    out_q = to_servo_raw(_make_signals(np.zeros(6), dq, load), quantize=False)
+    tau_exact = _lerobot_forward_torque(out_q["current_raw"], out_q["load_raw"], dq=dq)
+    np.testing.assert_allclose(tau_exact, tau_joint, atol=1e-9)
+
+
+def test_servo_raw_registers_are_quantized():
+    """The parity tier must carry the hardware's least counts, not continuous values.
+
+    A data-driven estimator (NEXT) is trained on the real bus, where the current register is
+    an integer and the encoder steps at 0.088 deg. Feeding it smooth sim signals is
+    out-of-distribution and flatters it -- this is what made NEXT look better in sim and
+    worse on hardware.
+    """
+    load = np.linspace(0.01, 0.9, 6)
+    out = to_servo_raw(_make_signals(np.full(6, 0.1234), np.ones(6), load))
+    assert np.all(out["current_raw"] == np.round(out["current_raw"])), \
+        "current_raw must be an integer ADC count"
+    steps = np.round(np.degrees(np.full(6, 0.1234)) / ENCODER_STEP_DEG) * ENCODER_STEP_DEG
+    np.testing.assert_allclose(out["pos_deg"], steps)
 
 
 def test_servo_raw_zero_load_uses_velocity_sign():

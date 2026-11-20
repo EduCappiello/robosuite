@@ -13,6 +13,7 @@ from robosuite_private.robot_spec.canonical import (
     SERVO_KV,
     STS3215_CURRENT_RAW_TO_mA,
     STS3215_GEAR_RATIO,
+    ENCODER_STEP_DEG,
     STS3215_STALL_CURRENT_A,
     STS3215_TORQUE_CONSTANT_mNm_PER_A,
     validate_against_mjcf,
@@ -36,6 +37,7 @@ __all__ = [
     "STS3215_TORQUE_CONSTANT_mNm_PER_A",
     "STS3215_GEAR_RATIO",
     "STS3215_STALL_CURRENT_A",
+    "ENCODER_STEP_DEG",
     "validate_against_mjcf",
     "export_robot_spec",
 ]

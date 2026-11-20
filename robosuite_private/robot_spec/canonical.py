@@ -70,10 +70,26 @@ KT_DEFAULT = 0.5   # N·m/A
 # servo_raw.py inverts exactly this.  SOARM101-specific (generalisation deferred).
 # ---------------------------------------------------------------------------
 
-STS3215_CURRENT_RAW_TO_mA         = 6.5         # raw current ADC units -> mA
-STS3215_TORQUE_CONSTANT_mNm_PER_A = 31.8        # motor torque constant [mNm/A], pre-gearing
+STS3215_CURRENT_RAW_TO_mA         = 65.45       # raw current ADC units -> mA (DERIVED, see below)
+STS3215_TORQUE_CONSTANT_mNm_PER_A = 3.158       # motor-side; datasheet 11 kg.cm/A OUTPUT / 345
 STS3215_GEAR_RATIO                = 1.0 / 345.0  # follower: 1/345 reduction on every joint
-STS3215_STALL_CURRENT_A           = 3.0         # datasheet stall current; current clamp ceiling
+STS3215_STALL_CURRENT_A           = 2.7         # datasheet 5-5, ST-3215-C047 (was 3.0)
+
+# Position least count. Datasheet 6-6: 12-bit magnetic encoder; 7-8: 0.088 deg/pulse over
+# 360 deg (360/4095). The sim used to emit continuous positions, so a data-driven estimator
+# trained on the real bus never saw the 0.088 deg staircase it is used to.
+ENCODER_STEP_DEG = 360.0 / 4095.0               # = 0.0879 deg
+
+# CORRECTED 2026-11-20 against the ST-3215-C047 datasheet (12 V, 30 kg.cm) -- the part
+# actually fitted. 30 kg.cm = 2.942 N*m @ 2.7 A and 10 kg.cm = 0.981 N*m @ 0.9 A both give
+# Kt_output = 1.0896 N*m/A, matching the datasheet's own Kt row (11 kg.cm/A = 1.0787).
+# Motor side = 1.0896/345 = 3.158 mNm/A. The previous 31.8 implied a 29.6 N*m stall on a
+# 2.94 N*m servo (10.07x).
+# Nothing looked wrong because only the PRODUCT current_LSB * Kt * (1/gear) is ever used:
+# the old pair gave 0.07130 N*m per ADC count, matching the 0.071 N*m step measured on the
+# FT-02 bus. Two 10x errors cancelled. That measurement validates the product, not the
+# split. current_LSB is therefore DERIVED (6.5 * 31.8/3.158) so the product is unchanged
+# (0.07131 N*m) and no measured torque moves. Keep identical to lerobot's motor_parameters.
 
 RAD_TO_DEG = 180.0 / np.pi
 
