@@ -15,7 +15,9 @@ Schema (all (6,) float64, DOF order = 5 arm joints then gripper):
     tau_gravity  — gravity torque G(q) at current q, q̇=0
     tau_coriolis — Coriolis + centrifugal  C(q,q̇)·q̇
     tau_inertial — inertial term  M(q)·q̈
-    tau_friction — reconstructed Coulomb + viscous friction (APPLIED sign, negative)
+    tau_friction — friction the solver actually applied (Coulomb/static from the constraint
+                   rows) plus viscous damping. APPLIED sign, negative when it opposes motion.
+                   At a static hold this is NON-ZERO up to the breakaway limit.
     tau_model    — tau_gravity + tau_coriolis + tau_inertial + tau_friction
                    (matches lerobot's TorqueEstimate.tau_model)
 """
@@ -105,12 +107,49 @@ def compute_model_terms(model, data, robot) -> dict:
     _fullM(model, data, M)
     tau_inertial = (M @ np.array(data.qacc))[dof_idx].astype(np.float64)
 
-    # ---- tau_friction  (reconstruct, do NOT use qfrc_constraint) ---------
+    # ---- tau_friction  (read what the solver APPLIED, do not reconstruct) ---
+    #
+    # *** SEMANTICS CHANGE (Eduardo, 2026-11-19: keep the fix, flag it) ***
+    # This field now reports the friction force the CONSTRAINT SOLVER ACTUALLY APPLIED,
+    # which is non-zero at a static hold (up to the breakaway limit). It used to be an
+    # analytic reconstruction, -(sign(v)*frictionloss + damping*v), which is identically 0
+    # at v = 0. Anything that consumed the old meaning -- e.g. a D_F / force-profile
+    # comparison, or a residual check that assumed tau_friction == 0 at rest -- will see
+    # different numbers from this change alone. Consumers that need the old quantity can
+    # reconstruct it from model.dof_frictionloss and data.qvel directly.
+    #
+    # The previous form, -(sign(v)*frictionloss + damping*v), is 0 at v = 0. That is not a
+    # modelling choice, it is an artifact of sign(0) = 0, and it hides friction the physics is
+    # really applying: MuJoCo's dof_frictionloss is a genuine STATIC breakaway limit, verified
+    # directly (scripts_tmp/probe_stiction_exists.py) -- a joint holding 0.099 N*m of gravity
+    # with ZERO actuator does not slide once frictionloss >= ~0.15, and free-falls at 0. So at
+    # a static hold the old term reported ~0 while the solver was supplying up to the limit.
+    # That made the sim look 5-7x friction-light against the real estimator, whose static gate
+    # does report the holding torque -- an apples-to-oranges comparison, not a model gap.
+    #
+    # MuJoCo exposes the applied force per constraint row. The dof-frictionloss rows are
+    # mjtConstraint FRICTIONDOF (enum value 1; this binding exposes no mjCON_* constants), with
+    # efc_id = dof index and efc_frictionloss = the limit. Verified in
+    # scripts_tmp/probe_efc_friction.py: 6 rows, efc_id = [0..5], efc_force = the joint torque.
+    # Viscous damping is not in those rows, so it stays analytic (MuJoCo computes it exactly).
     vel  = np.array(data.qvel)[dof_idx].astype(np.float64)
     fl   = np.array(model.dof_frictionloss)[dof_idx].astype(np.float64)
     damp = np.array(model.dof_damping)[dof_idx].astype(np.float64)
-    # Coulomb: -sign(v) * frictionloss  |  viscous: -damping * v
-    tau_friction = -(np.sign(vel) * fl + damp * vel)
+
+    coulomb = -(np.sign(vel) * fl)          # fallback: analytic, only valid while moving
+    nefc = int(data.nefc)
+    if nefc > 0:
+        efc_type = np.asarray(data.efc_type)[:nefc]
+        rows = np.flatnonzero(efc_type == 1)          # 1 = FRICTIONDOF
+        if rows.size:
+            efc_id = np.asarray(data.efc_id)[rows]
+            efc_force = np.asarray(data.efc_force)[rows]
+            pos = {int(dd): k for k, dd in enumerate(dof_idx)}
+            for i, dd in enumerate(efc_id):        # efc_force[i] pairs with rows[i]
+                k = pos.get(int(dd))
+                if k is not None:
+                    coulomb[k] = float(efc_force[i])
+    tau_friction = coulomb - damp * vel
 
     # ---- tau_model  (model-known balance demand) -------------------------
     tau_model = tau_gravity + tau_coriolis + tau_inertial + tau_friction
