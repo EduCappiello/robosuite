@@ -178,11 +178,11 @@
     <torque site="wrist_ft_site" name="wrist_ft_torque"/>
   </sensor>
   <actuator>
-    <motor class="sts3215" name="shoulder_pan" joint="shoulder_pan" ctrllimited="true" ctrlrange="-3.35 3.35"/>
-    <motor class="sts3215" name="shoulder_lift" joint="shoulder_lift" ctrllimited="true" ctrlrange="-3.35 3.35"/>
-    <motor class="sts3215" name="elbow_flex" joint="elbow_flex" ctrllimited="true" ctrlrange="-3.35 3.35"/>
-    <motor class="sts3215" name="wrist_flex" joint="wrist_flex" ctrllimited="true" ctrlrange="-3.35 3.35"/>
-    <motor class="sts3215" name="wrist_roll" joint="wrist_roll" ctrllimited="true" ctrlrange="-3.35 3.35"/>
+    <motor class="sts3215" name="shoulder_pan" joint="shoulder_pan" ctrllimited="true" ctrlrange="-2.942 2.942"/>
+    <motor class="sts3215" name="shoulder_lift" joint="shoulder_lift" ctrllimited="true" ctrlrange="-2.942 2.942"/>
+    <motor class="sts3215" name="elbow_flex" joint="elbow_flex" ctrllimited="true" ctrlrange="-2.942 2.942"/>
+    <motor class="sts3215" name="wrist_flex" joint="wrist_flex" ctrllimited="true" ctrlrange="-2.942 2.942"/>
+    <motor class="sts3215" name="wrist_roll" joint="wrist_roll" ctrllimited="true" ctrlrange="-2.942 2.942"/>
   </actuator>
   <equality/>
 </mujoco>
